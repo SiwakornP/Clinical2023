@@ -1,0 +1,162 @@
+---
+title: "Bonavita"
+author: "Siwakorn"
+date: "2023-07-13"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(Seurat)
+library(tidyverse)
+library(harmony)
+library(fgsea)
+library(msigdbr)
+```
+
+```{r}
+Clustering1 <- function(tmp,dim=30,res=0.3,spread =1, dist = 0.5,group = "ID" ){
+      DefaultAssay(tmp) = "RNA"
+      tmp <- NormalizeData(tmp) %>% FindVariableFeatures() %>% ScaleData() %>% RunPCA(verbose = FALSE)
+      tmp <- RunHarmony(tmp, group.by.vars = group)
+      tmp <- RunUMAP(tmp, reduction = "harmony", dims = 1:dim, min.dist = dist, spread = spread )
+      tmp <- FindNeighbors(tmp, reduction = "harmony", dims = 1:dim) %>% FindClusters(resolution = res)
+      return(tmp)
+}
+
+Col.HiLow.9Shades = c("#28198a","#163285","#3d569f","#8b99c2","#ffffff","#fce487","#f9c80e","#f86624","#ea3546")
+scale_orange = scale_color_gradientn(colours = c("grey","yellow","orange","red"), values = c(0,0.1,0.5,1))
+Dot_axis90A = theme(axis.text.x =  element_text(size = 15, angle = 90, hjust = 1, vjust = 0.3,color = "black",face ="italic"), axis.text.y = element_text(size = 15,color = "black")) 
+Dot_axis90B = theme(axis.text.x =  element_text(size = 15, angle = 90, hjust = 1, vjust = 0.3,color = "black"), axis.text.y = element_text(size = 15,color = "black")) 
+Dot_scale = scale_size(range = c(1.5,8),name = "Percent Expression") 
+FP_head = theme(plot.title = element_text(size = 20, face= "bold", colour = "firebrick") )
+FP_head2 = theme(plot.title = element_text(size = 30, face= "bold", colour = "firebrick") )
+
+dir = "230714"
+dir.create(paste0("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA.Public/Bonavita/Fig/",dir,"/"))
+PNG <- function(x,w = 6, h = 6.3, r =200){
+      png(filename = paste0("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA.Public/Bonavita/Fig/",dir,"/",x,".png" ),
+          width = w, 
+          height = h, 
+          units = "in", 
+          res = r)
+}
+```
+
+
+```{r}
+CellRangerDir = c("~/RStudioProject/scRNA.Public/Bonavita/GSM4128018_KO","~/RStudioProject/scRNA.Public/Bonavita/GSM4128018_KOaNK")
+Exp = c("KO","KOaNK")
+RNA = list()
+for(i in 1:length(CellRangerDir)) {
+    tmp = Read10X(data.dir = CellRangerDir[i]  )
+    RNA[[i]] <- CreateSeuratObject(counts = tmp, project = Exp[i], min.cells = 3, min.features = 0)
+    RNA[[i]][["percent.mt"]] <- PercentageFeatureSet(RNA[[i]], pattern = "^mt-")
+}
+Bona = merge(x = RNA[[1]],
+            y = RNA[2:length(RNA)],
+            merge.data = TRUE)
+RNA = 0
+Bona[[]]
+Bona = NormalizeData(Bona) %>% FindVariableFeatures() %>% ScaleData() %>% RunPCA(verbose = FALSE)
+Bona = RunHarmony(Bona, group.by.vars = "orig.ident")
+Bona <- RunUMAP(Bona, reduction = "harmony", dims = 1:30, min.dist = 1, spread =1 )
+Bona <- FindNeighbors(Bona, reduction = "harmony", dims = 1:30) %>% FindClusters(resolution = 0.3)
+
+selected.genes = c("Ptprc","Nkg7","Gzmb","Cd3d","Cd4","Cd8a","Foxp3","S100a8","Csf3r","Csf1r","Adgre1","Mki67","Ccr7","Clec9a","Clec10a","Siglech","Kit","Hdc","Col1a1","Ighd","Igkc")
+for(i in selected.genes){
+  print(FeaturePlot(Bona, i) + scale_orange )
+}
+Bona = RenameIdents(Bona, 
+                    '0' = "Mono",
+                    '1' = "TAM",
+                    '2' = "DC",
+                    '3' = "TAN",
+                    '4' = "Mono",
+                    '5' = "NK",
+                    '6' = "LQ",
+                    '7' = "Tcell",
+                    '8' = "nonImmune",
+                    '9' = "nonImmune",
+                    '10' = "TAM",
+                    '11' = "Dividing",
+                    '12' = "DC",
+                    '13' = "B_lymphocyte",
+                    '14' = "LQ",
+                    '15' = "LQ")
+Bona$Identity.Celltype1 = Idents(Bona)
+DimPlot(Bona,label=T)
+saveRDS(Bona, "~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA.Public/Bonavita/Bonavita.230714.rds")
+```
+
+##QC
+```{r}
+Bona = subset(Bona,percent.mt < 10)
+tmp = levels(Idents(Bona)) %>% setdiff(c("LQ","nonImmune"))
+Bona = subset(Bona, idents = tmp)
+Bona = Clustering1(Bona,group = "orig.ident", dim = 30, spread =1, dist = 1,res =0.5)
+Idents(Bona) = Bona$seurat_clusters
+Bona = RenameIdents(Bona, 
+                    '7' = "NK",
+                    '9' = "Tcell",
+                    '3' = "TAN",
+                    '2' = "Mono",
+                    '0' = "TAM",
+                    '14' = "cDC1",
+                    '8' = "cDC2",
+                    '12' = "mregDC",
+                    '16' = "pDC",
+                    '13' = "B_lymphocyte",
+                    '10' = "Dividing",
+                    '1' = "TAM",
+                    '4' = "Mono",
+                    '5' = "TAM",
+                    '6' = "Mono",
+                    '11' = "Mono",
+                    '15' = "Tcell")
+Bona$Identity.Celltype2 = Idents(Bona)
+DimPlot(Bona,label = T)
+saveRDS(Bona, "~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA.Public/Bonavita/Bonavita.QC.230714.rds")
+```
+ 
+
+ 
+#DE
+DE.Celltype2.r
+```{r}
+library(Seurat)
+library(harmony)
+library(tidyverse)
+options(future.globals.maxSize = 100000 * 1024^2)
+
+Bona = readRDS("//home/siwakorn/scRNA.PB/Bonavita/Bonavita.QC.230714.rds")
+
+DE = list()
+Idents(Bona) = Bona$Identity.Celltype2
+for(i in levels(Idents(Bona))){
+      tryCatch({
+         print(i)
+	 tmp = subset(Bona, idents = i)
+   	 Idents(tmp) = tmp$orig.ident
+  	 DE[[i]] = FindMarkers(tmp, ident.1 = "KOaNK", ident.2 = "KO", logfc.threshold = 0.01, min.pct = 0.01) %>% arrange(avg_log2FC)
+      },error = function(e){print(e)})
+}
+saveRDS(DE,"//home/siwakorn/scRNA.PB/Bonavita/DE.Bonavita.Celltype2.230714.rds")
+```
+##Convert to df
+```{r}
+DE=readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA.Public/Bonavita/DE.Bonavita.Celltype2.230714.rds")
+df = data.frame()
+DE$NK
+for(i in names(DE)){
+      df1 = DE[[i]] %>% as_tibble(rownames = "Genes")
+      df1$Cluster = i
+      df1$Dataset = "Bonavita"
+      df = rbind(df,df1)
+      }
+df$Cluster = factor(df$Cluster, levels= names(DE) )
+df
+```
