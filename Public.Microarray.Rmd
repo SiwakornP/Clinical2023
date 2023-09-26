@@ -1,0 +1,224 @@
+---
+title: "Public Microarray analysis"
+author: "Siwakorn"
+date: '2023-09-01'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Library
+```{r}
+library(GEOquery)
+library(biomaRt)
+library(limma)
+library(tidyverse)
+library(fgsea)
+library(msigdbr)
+```
+
+#GSE47189 | Xue | Mo-derived Macrophage
+##Analysis 
+```{r}
+library("GEOquery")
+Xue = getGEO("GSE47189")
+Xue = Xue$`GSE47189-GPL6947_series_matrix.txt.gz`
+GPL <- read.delim("~/GPL6947-13512.edited.txt")
+rownames(GPL) = GPL$ID
+
+tmp = c("GSM1140660","GSM1140673","GSM1140674","GSM1140669","GSM1140672","GSM1140677","GSM1140657","GSM1140666","GSM1140670","GSM1140659","GSM1140662","GSM1140668","GSM1140664","GSM1140665","GSM1140680","GSM1140671","GSM1140676","GSM1140679","GSM1140661","GSM1140663","GSM1140667","GSM1140658","GSM1140675","GSM1140678")
+pData(Xue)[tmp,]
+Xue = Xue[,tmp]
+Xue$Condition = Xue$`activation stimuli:ch1`
+Xue$Condition = gsub("\\+","_",Xue$Condition)
+Xue$Condition = gsub("TNFa_PGE2_P3C","TNFa_P3C_PGE2", Xue$Condition)
+Xue$ID = paste0(Xue$Condition,"_",1:3)
+```
+
+###DE
+```{r}
+DE = list()
+for(i in c("PGE2","TNFa","P3C","TNFa_P3C")){
+  tmp1 = filter(pData(Xue), Condition %in% c("con", i))
+  Xue2 = Xue[,rownames(tmp1)]
+  Xue2$Condition = factor(Xue2$Condition, levels = c(i,"con"))
+  print(pData(Xue2)[,c(1,2,3,39,40)] )
+  design = model.matrix(~Condition + 0 ,Xue2)
+  colnames(design) = levels(Xue2$Condition)
+  Xue2 = Xue2[complete.cases(exprs(Xue2)),]
+  fit = lmFit(Xue2,design)
+  cts = paste0(i,"-con")
+  cont.matrix <- makeContrasts(contrasts=cts, levels=design)
+  fit2 <- contrasts.fit(fit, cont.matrix)
+  fit2 <- eBayes(fit2, 0.01)
+  df1 <- topTable(fit2, adjust="fdr", sort.by="B", number=dim(fit2)[1])
+  df1 <- subset(df1, select=c("ID","Symbol","adj.P.Val","P.Value","t","B","logFC","AveExpr","GI","ILMN_Gene"))
+  df1$Condition = cts
+  DE[[paste0(i,"-baseline")]] = df1
+}
+
+for(i in c("P3C","TNFa","TNFa_P3C")){
+  tmp1 = filter(pData(Xue), Condition %in% c(i,paste0(i,"_PGE2")))
+  Xue2 = Xue[,rownames(tmp1)]
+  Xue2$Condition = factor(Xue2$Condition, levels = c(paste0(i,"_PGE2") , i ))
+  print(pData(Xue2)[,c(1,2,3,39,40)] )
+  design = model.matrix(~Condition + 0 ,Xue2)
+  colnames(design) = levels(Xue2$Condition)
+  Xue2 = Xue2[complete.cases(exprs(Xue2)),]
+  fit = lmFit(Xue2,design)
+  cts = paste0(i,"_PGE2-",i)
+  cont.matrix <- makeContrasts(contrasts=cts, levels=design)
+  fit2 <- contrasts.fit(fit, cont.matrix)
+  fit2 <- eBayes(fit2, 0.01)
+  df1 <- topTable(fit2, adjust="fdr", sort.by="B", number=dim(fit2)[1])
+  df1 <- subset(df1, select=c("ID","Symbol","adj.P.Val","P.Value","t","B","logFC","AveExpr","GI","ILMN_Gene"))
+  df1$Condition = cts
+  DE[[ cts ]] = df1
+}
+
+#Convert to simple data.frame
+df = data.frame()
+for(i in names(DE)){
+  df1 = DE[[i]] %>% as_tibble() 
+  df1$Dataset = i
+  df = rbind(df,df1)
+}
+DE$DE.df = df
+```
+
+###GSEA 
+```{r}
+GSEA = list()
+GSEA2 = list()
+GSEA_H2 = list()
+for(i in names(DE)){
+  tmp =  DE[[i]]  %>% dplyr::select(Symbol, logFC) %>% arrange(logFC) %>% deframe()
+  GSEA[[i]] <- fgsea(fgsea_sets, stats = tmp, nperm = 50000) %>% as_tibble() %>% arrange(desc(NES) )
+  GSEA2[[i]] = fgseaMultilevel(fgsea_sets, stats = tmp ) %>% arrange(desc(NES) )
+  GSEA_H2[[i]] = fgseaMultilevel(fgsea_sets_H, stats = tmp ) %>% arrange(desc(NES) )
+
+}
+DE$GSEA = GSEA 
+DE$GSEA2 = GSEA2
+DE$GSEA_H2 = GSEA_H2
+```
+
+###Scale Data
+```{r}
+colnames(Xue) = Xue$ID
+Xue = Xue[intersect(rownames(Xue), GPL$ID) ]
+
+GPL[rownames(Xue),"ID"] %>% duplicated() %>% summary()
+rownames(Xue) = GPL[rownames(Xue),"ID"]
+
+pData(Xue)
+XueS = list()
+df = data.frame()
+for(i in c("P3C","TNFa","TNFa_P3C") ){
+    tmp1 = filter(pData(Xue), Condition %in% c(i,paste0(i,"_PGE2")))
+    Xue2 = Xue[,tmp1$ID]
+    tmp2 = exprs(Xue2)
+    tmp2 = scale(t(tmp2)) %>% t() %>% as.data.frame() %>% as_tibble(rownames = "ProbeID") %>% gather(key = "Sample", value = "Expression", -ProbeID)
+    tmp2$Genes = GPL[tmp2$ProbeID,"Symbol"]
+    tmp2$Dataset = i
+    df = rbind(df,tmp2)
+    tmp2$Sample = factor(tmp2$Sample, levels = unique(Xue2$ID) )
+    XueS[[paste0(i,"_PGE2")]] = tmp2
+}
+
+DE$ScaleExp.df = df
+
+saveRDS(DE, "~/DE.Xue.230909.rds")
+saveRDS(Xue,"~/GSE47189.Xue.processed.230831.rds")
+```
+
+
+#Beyer (Schultze) CD4 
+##In house analysis 
+```{r}
+library("GEOquery")
+Beyer1 = getGEO("GSE15390")
+Beyer1 = Beyer1$GSE15390_series_matrix.txt.gz
+#saveRDS(Beyer1,"~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/PublicBulkRNA/Schultze.CD4/GSE15390.rds" )
+Beyer1 = readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/PublicBulkRNA/Schultze.CD4/GSE15390.rds" )
+
+Beyer2 = getGEO("GSE52185")
+saveRDS(Beyer2,"~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/PublicBulkRNA/Schultze.CD4/GSE52185.rds" )
+Beyer2 = readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/PublicBulkRNA/Schultze.CD4/GSE52185.rds" )
+Beyer2 = Beyer2$`GSE52185-GPL2507_series_matrix.txt.gz`
+
+GPL <- read.csv("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/PublicBulkRNA/Schultze.CD4/GPL2507_Human_WG-6.csv")
+tmp = GPL$Target[duplicated(GPL$Target)]
+GPL = GPL[!duplicated(GPL$Target),]
+GPL$Genes_ID = paste0(GPL$Symbol,"_",GPL$Target)
+rownames(GPL) = GPL$Target
+
+#write.csv(pData(Beyer1),"~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/PublicBulkRNA/Schultze.CD4/pData.GSE15390.csv" ) #Beyer, Nat Imm 2011
+tmp1 = c("GSM425388","GSM425389","GSM425390","GSM777688","GSM430153","GSM430149","GSM430152","GSM777692")
+#write.csv(pData(Beyer2),"~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/PublicBulkRNA/Schultze.CD4/pData.GSE52185-GPL2507.csv" ) #Beyer, Nat Imm 2016
+tmp2 = c("GSM448914","GSM448915","GSM448916","GSM448934","GSM448930","GSM448933")
+
+Beyer1 = Beyer1[,tmp1]
+Beyer1 = Beyer1[complete.cases(exprs(Beyer1)),]
+Beyer1$Group = c(rep("CD3CD28",4),rep("CD3CD28_PGE2",4))
+Beyer1$Group = factor(Beyer1$Group, levels = c("CD3CD28_PGE2","CD3CD28") )
+Beyer1$ID = paste0(Beyer1$Group,"_",1:4)
+pData(Beyer1) %>% dplyr::select(title,Group,ID)
+
+Beyer2 = Beyer2[,tmp2]
+Beyer2 = Beyer2[complete.cases(exprs(Beyer2)),]
+Beyer2$Group = c(rep("CD3CD28",3),rep("CD3CD28_PGE2",3))
+Beyer2$Group = factor(Beyer2$Group, levels = c("CD3CD28_PGE2","CD3CD28") )
+Beyer2$ID = paste0(Beyer2$Group,"_",1:3)
+pData(Beyer2) %>% dplyr::select(title,Group,ID)
+
+DE = list()
+Beyer = list("Beyer1"=Beyer1,"Beyer2" = Beyer2)
+for(i in c("Beyer1","Beyer2")){
+  ex <- exprs(Beyer[[i]])
+  qx <- as.numeric(quantile(ex, c(0., 0.25, 0.5, 0.75, 0.99, 1.0), na.rm=T))
+  LogC <- (qx[5] > 100) ||
+          (qx[6]-qx[1] > 50 && qx[2] > 0)
+  if (LogC) { 
+    ex[which(ex <= 0)] <- NaN  
+    exprs(Beyer[[i]]) <- log2(ex) 
+    }
+  design = model.matrix(~Group+ 0 ,Beyer[[i]])
+  colnames(design) = levels(Beyer[[i]]$Group)
+  fit = lmFit(Beyer[[i]],design)
+  cts = "CD3CD28_PGE2-CD3CD28"
+  cont.matrix <- makeContrasts(contrasts=cts, levels=design)
+  fit2 <- contrasts.fit(fit, cont.matrix)
+  fit2 <- eBayes(fit2, 0.01)
+  df1 <- topTable(fit2, adjust="fdr", sort.by="B", number=dim(fit2)[1])
+  df1$Genes = GPL[df1$ID,"Symbol"]
+  df1 <- subset(df1, select=c("Genes","ID","GB_ACC","logFC","AveExpr","adj.P.Val","P.Value","t","B"))
+  df1$Condition = cts
+  DE[[i]] = df1
+}
+
+Beyer2 = Beyer$Beyer2
+colnames(Beyer2) = Beyer2$ID
+Beyer2 = Beyer2[intersect(rownames(Beyer2),GPL$Target),]
+rownames(Beyer2) = GPL[rownames(Beyer2),"Genes_ID"]
+
+tmp2 = exprs(Beyer2)
+tmp2 = scale(t(tmp2)) %>% t() %>% as.data.frame() %>% as_tibble(rownames = "Genes_ProbeID") %>% gather(key = "Sample", value = "Expression", -Genes_ProbeID)
+
+rownames(GPL) = GPL$Genes_ID
+tmp2$Genes = GPL[tmp2$Genes_ProbeID, "Symbol"]
+Beyer$Beyer2.df = tmp2
+
+tmp =  DE$Beyer2  %>% dplyr::select(Genes, logFC) %>% arrange(logFC) %>% deframe()
+fgseaRes1 <- fgsea(fgsea_sets, stats = tmp, nperm = 50000)
+DE$Beyer2.GSEA = fgseaRes1 %>% as_tibble() %>% arrange(desc(NES) ) #%>% filter(padj < 0.05)
+
+DE$Beyer2.GSEA2 = fgseaMultilevel(fgsea_sets, stats = tmp ) %>% as_tibble() %>% arrange(desc(NES) )
+DE$Beyer2.GSEA_H2 = fgseaMultilevel(fgsea_sets_H, stats = tmp ) %>% as_tibble() %>% arrange(desc(NES) )
+
+saveRDS(Beyer, "~/Schultze.CD4/Beyer.230829.rds")
+saveRDS(DE,    "~/DE.CD4.Schultze-Meyer.230908.rds")
+
+```
