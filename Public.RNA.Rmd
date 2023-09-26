@@ -1,0 +1,97 @@
+---
+title: "Public RNA-seq analysis"
+author: "Siwakorn"
+date: '2023-09-01'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Library
+```{r}
+library(tidyverse)
+library(scales)
+library(pathfindR)
+library(fgsea)
+library(msigdbr)
+library(biomaRt)
+
+library(DESeq2)
+
+library(limma)
+```
+
+#Sanin [M2-PGE2 vs M2]
+```{r}
+Sanin = list()
+df = data.frame()
+for(i in c("M2_1","M2_2","M2_3","M2_PGE2_1","M2_PGE2_2","M2_PGE2_3")){
+   df1 <- read.delim(paste0("~/GSE119509_RAW/Rename/",i,".txt"), header=FALSE)  
+  colnames(df1) = c("Genes",i)
+  if(ncol(df) > 0 ){
+    df = left_join(df,df1)} else {
+      df = df1
+    }
+  }
+rownames(df) = df$Genes
+df = df %>% dplyr::select(-Genes)
+Sanin$Count = df
+Sanin$metaData <- data.frame("id" = c("M2_1","M2_2","M2_3","M2_PGE2_1","M2_PGE2_2","M2_PGE2_3"),
+                       "sampleNames" = c(paste0("Sample",1:6) ),
+                       "dex" = c(rep("M2",3),rep("M2_PGE2",3)) 
+                       )
+
+#DE
+Sanin$dds <- DESeqDataSetFromMatrix(countData=Sanin$Count, 
+                              colData=Sanin$metaData , 
+                              design= ~dex)
+Sanin$dds <- estimateSizeFactors(Sanin$dds)
+sizeFactors(Sanin$dds)
+Sanin$dds <- DESeq(Sanin$dds)
+resultsNames(Sanin$dds) # lists the coefficients
+Sanin$DE <- results(Sanin$dds, name="dex_M2_PGE2_vs_M2") %>% as.data.frame()
+Sanin$DE = Sanin$DE %>% as_tibble(rownames = "ensembl_gene_id")
+mmart = useMart(biomart = "ENSEMBL_MART_ENSEMBL",
+                dataset = "mmusculus_gene_ensembl",
+                host = "https://www.ensembl.org")
+
+mmartx <- getBM(filters = "ensembl_gene_id", 
+                attributes = c("ensembl_gene_id", "description","external_gene_name","mgi_symbol"),
+                values = Sanin$DE$ensembl_gene_id, mart = mmart) 
+df = dplyr::select(mmartx,mgi_symbol,ensembl_gene_id)
+Sanin$DE = left_join(Sanin$DE,df)
+
+#Expression
+Sanin$count.norm <- counts(Sanin$dds, normalized = T)
+
+#Scale Expression
+tmp1A = counts(Sanin$dds,normalized = T) 
+tmp2 = mapIds(org.Mm.eg.db, keys= rownames(tmp1), keytype = "ENSEMBL", column = "SYMBOL")
+tmp2 = data.frame("ENSEMBL" = names(tmp2),"Genes" = tmp2)
+tmp1B = t(apply(tmp1A,1, scale))
+colnames(tmp1B) = colnames(tmp1A)
+tmp1B = as_tibble(tmp1B,rownames = "ENSEMBL")
+df = left_join(tmp1B,tmp2) %>% dplyr::select(Genes, colnames(tmp1A))
+Sanin$Scale = df
+BOCDF$`Sanin_M2PGE2-M2_Scale` = df
+
+#GSEA
+DE = Sanin$DE
+DE$Genes = DE$mgi_symbol
+tmp = DE %>% dplyr::select(Genes, log2FoldChange) %>% arrange(log2FoldChange) 
+tmp = tmp[!is.na(tmp$log2FoldChange),]
+tmp = tmp[!is.na(tmp$Genes),]
+ranks = deframe(tmp)
+fgseaRes1 <- fgsea(mfgsea_sets, stats = ranks, nperm = 50000) %>% arrange(NES)
+Sanin$GSEA = fgseaRes1 %>% arrange(desc(NES))
+
+saveRDS(Sanin,"~/Sanin.230828.rds" )
+Sanin = readRDS("~/Sanin.230828.rds" )
+
+Sanin$GSEA2 <- fgseaMultilevel(mfgsea_sets, stats = ranks ) %>% as_tibble() %>% arrange(desc(NES) )
+Sanin$GSEA_H2 <- fgseaMultilevel(mfgsea_sets_H, stats = ranks ) %>% as_tibble() %>% arrange(desc(NES) )
+
+saveRDS(Sanin,"~/Sanin.230908.rds" )
+```
