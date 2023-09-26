@@ -1,0 +1,152 @@
+---
+title: "RNA seq of CD8 T cell analysis"
+author: "Siwakorn"
+date: "2023-09-25"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(DESeq2)
+M23DF = list()
+```
+
+#--------RNA-seq------------------
+#In vitro ( CD8 )
+##Calculation
+###M23-21 (24 hr)
+```{r}
+i="Veh1"
+df =  read.delim(paste0("~/htseq/M23-21_",i,"_htseq.tabular"), header=FALSE) 
+colnames(df) = c("Genes",i)
+for(i in c("Veh2","Veh3","PGE2_1","PGE2_2","PGE2_3")){
+  tmp <- read.delim(paste0("~/htseq/M23-21_",i,"_htseq.tabular"), header=FALSE) 
+  colnames(tmp) = c("Genes",i)
+  df = left_join(df,tmp)
+}
+df = as.data.frame(df)
+rownames(df) = df$Genes
+df = dplyr::select(df, - Genes)
+Meta <- data.frame("id" = colnames(df),
+                       "sampleNames" = c("Veh1","Veh2","Veh3","PGE2_1","PGE2_2","PGE2_3"),
+                       "dex" = c("Vehicle","Vehicle","Vehicle","PGE2","PGE2","PGE2")
+                       )
+#DE
+dds <- DESeqDataSetFromMatrix(countData=df, 
+                              colData=Meta , 
+                              design= ~dex)
+dds$dex = relevel(dds$dex,ref = "Vehicle")
+dds <- estimateSizeFactors(dds)
+dds <- DESeq(dds)
+resultsNames(dds) # lists the coefficients
+DE <- results(dds, name="dex_PGE2_vs_Vehicle") %>% as.data.frame()
+
+#Count
+count.norm <- counts(dds, normalized = T) 
+scaleExp = count.norm %>% t() %>% scale() %>% t() %>% as.data.frame() %>% as_tibble(rownames = "Genes")
+count.norm = count.norm %>% as_tibble(rownames = "Genes")
+
+#GSEA
+tmp = as_tibble(DE, rownames = "Genes") %>% dplyr::select(Genes, log2FoldChange) %>% arrange(log2FoldChange) 
+tmp = tmp[!is.na(tmp$log2FoldChange),]
+ranks = deframe(tmp)
+fgseaRes1 <- fgsea(mfgsea_sets, stats = ranks, nperm = 50000) %>% arrange(NES)
+
+M23DF$M2321 = list("RawCount" = df,"NormalizedCount" = count.norm,"Scale"=scaleExp,"DE" = DE, "GSEA" = fgseaRes1 )
+```
+
+
+###M23-28 (48 hr)
+```{r}
+i ="Veh1"
+df <- read.delim("~/htseq/M23-28_Veh1.tabular", header=FALSE)
+colnames(df) = c("Genes",i)
+for(i in c("Veh2","Veh3","PGE2_1","PGE2_2","PGE2_3")){
+  tmp <- read.delim(paste0("~/htseq/M23-28_",i,".tabular"), header=FALSE) 
+  colnames(tmp) = c("Genes",i)
+  df = left_join(df,tmp)
+}
+df = as.data.frame(df)
+rownames(df) = df$Genes
+df = dplyr::select(df, - Genes)
+Meta <- data.frame("id" = colnames(df),
+                       "sampleNames" = c("Veh1","Veh2","Veh3","PGE2_1","PGE2_2","PGE2_3"),
+                       "dex" = c("Vehicle","Vehicle","Vehicle","PGE2","PGE2","PGE2")
+                       )
+#DE
+dds <- DESeqDataSetFromMatrix(countData=df, 
+                              colData=Meta , 
+                              design= ~dex)
+dds$dex = relevel(dds$dex,ref = "Vehicle")
+dds <- estimateSizeFactors(dds)
+dds <- DESeq(dds)
+resultsNames(dds) # lists the coefficients
+DE <- results(dds, name="dex_PGE2_vs_Vehicle") %>% as.data.frame()
+
+#Count
+count.norm <- counts(dds, normalized = T) 
+scaleExp = count.norm %>% t() %>% scale() %>% t() %>% as.data.frame() %>% as_tibble(rownames = "Genes")
+count.norm = count.norm %>% as_tibble(rownames = "Genes")
+
+#GSEA
+tmp = as_tibble(DE, rownames = "Genes") %>% dplyr::select(Genes, log2FoldChange) %>% arrange(log2FoldChange) 
+tmp = tmp[!is.na(tmp$log2FoldChange),]
+ranks = deframe(tmp)
+fgseaRes1 <- fgsea(mfgsea_sets, stats = ranks, nperm = 1000) %>% arrange(NES)
+
+M23DF$M2328 = list("RawCount" = df,"NormalizedCount" = count.norm,"Scale"=scaleExp,"DE" = DE, "GSEA" = fgseaRes1 )
+```
+
+
+###M23-31 (60 hr)
+```{r}
+i ="Veh1"
+df <- read.delim("~/htseq/M23-31_Veh1.tabular", header=FALSE)
+colnames(df) = c("Genes",i)
+for(i in c("Veh2","Veh3","PGE2_1","PGE2_2","PGE2_3")){
+  tmp <- read.delim(paste0("~/htseq/M23-31_",i,".tabular"), header=FALSE) 
+  colnames(tmp) = c("Genes",i)
+  df = left_join(df,tmp)
+}
+
+df = as.data.frame(df)
+rownames(df) = df$Genes
+df = dplyr::select(df, - Genes)
+
+Meta <- data.frame("id" = colnames(df),
+                       "sampleNames" = c("Veh1","Veh2","Veh3","PGE2_1","PGE2_2","PGE2_3"),
+                       "dex" = c("Vehicle","Vehicle","Vehicle","PGE2","PGE2","PGE2")
+                       )
+
+#DE
+dds <- DESeqDataSetFromMatrix(countData=df, 
+                              colData=Meta , 
+                              design= ~dex)
+dds$dex = relevel(dds$dex,ref = "Vehicle")
+dds <- estimateSizeFactors(dds)
+dds <- DESeq(dds)
+resultsNames(dds) # lists the coefficients
+DE <- results(dds, name="dex_PGE2_vs_Vehicle") %>% as.data.frame()
+
+#Count
+count.norm <- counts(dds, normalized = T) # %>% as_tibble(rownames = "Genes")
+scaleExp = count.norm %>% t() %>% scale() %>% t() %>% as.data.frame() %>% as_tibble(rownames = "Genes")
+count.norm = count.norm %>% as_tibble(rownames = "Genes")
+
+#GSEA
+tmp = as_tibble(DE, rownames = "Genes") %>% dplyr::select(Genes, log2FoldChange) %>% arrange(log2FoldChange) 
+tmp = tmp[!is.na(tmp$log2FoldChange),]
+ranks = deframe(tmp)
+fgseaRes1 <- fgsea(mfgsea_sets, stats = ranks, nperm = 1000) %>% arrange(NES)
+
+M23DF$M2331 = list("RawCount" = df,"NormalizedCount" = count.norm,"Scale"=scaleExp,"DE" = DE, "GSEA" = fgseaRes1 )
+```
+
+```{r}
+saveRDS(M23DF, "M23DF.rds")
+```
+
