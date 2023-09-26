@@ -1,0 +1,2399 @@
+---
+title: "scBOC CD45"
+author: "Siwakorn"
+date: '2023-04-04'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Library
+```{r}
+library(Seurat)
+library(tidyverse)
+library(harmony)
+library(scales)
+library(pathfindR)
+library(fgsea)
+library(msigdbr)
+library(biomaRt)
+library(ggrepel)
+library(ggthemes)
+library(gtools)
+library(DESeq2)
+library(org.Hs.eg.db)
+library("org.Mm.eg.db")
+library(limma)
+library(extrafont)
+library(gggsea)
+library(gridExtra)
+#font_import()
+```
+
+
+#Style
+```{r}
+col_orange3 = c("grey85","#fecd1a","#FFB700","#FAA307","#F48C06","#E85D04","#DC2F02","#D00000")
+col_orange4 = c("grey","#fecd1a","#FFB700","#FAA307","#F48C06","#E85D04")
+
+col_viridis <- c("grey",c(viridis::viridis(6))[1:5],"#fecd1a" )
+col_viridis2 <- c(c(viridis::viridis(6))[1:5],"#fecd1a" )
+
+Col.HiLow.9Shades = c("#28198a","#163285","#3d569f","#8b99c2","#ffffff","#fce487","#f9c80e","#f86624","#ea3546")
+Col.HiLow.7Shades = c("#28198a","#163285","#3d569f","#ffffff","#f9c80e","#f86624","#ea3546")
+
+BOCDF = list()
+BOCDF$cols = list()
+BOCDF$cols$Celltype= c("#264653", "#287271","#2A9D8F","#8ab17d","#e76f51","#fcb900","#985c6f","#49488d","#693d8f"   )
+BOCDF$cols$Celltype3 = c("#f57f26", "#d51f24","#252d6b","#1e8b40","#2480c2","#fcb900","#985c6f","#49488d","#882790","violet","orange")
+BOCDF$cols$Celltype4 = c("#f57f26", "#d51f24","#252d6b","#1e8b40","#fcb900","#985c6f","#49488d","#882790","#BF535B")
+BOCDF$cols$CD8.Subtype1 = c("#fcc304","#fb5b33","#c40424","#6a994e","#ef476f","#219ebc","#5e548e","#fe6d73","#00296b")
+BOCDF$cols$TIM.Subtype1 = c("#4A080A","#a01313","#e09f3e","red")
+
+
+scale_orange = scale_color_gradientn(colours = c("grey","yellow","orange","red"), values = c(0,0.1,0.5,1))
+
+scale_viridis = scale_color_gradientn(colours = col_viridis )
+
+Dot_axis90A = theme(axis.text.x =  element_text(size = 15, angle = 90, hjust = 1, vjust = 0.3,color = "black",face ="italic"), axis.text.y = element_text(size = 15,color = "black")) 
+Dot_axis90B = theme(axis.text.x =  element_text(size = 15, angle = 90, hjust = 1, vjust = 0.3,color = "black"), axis.text.y = element_text(size = 15,color = "black")) 
+
+Dot_scale = scale_size(range = c(1.5,8),name = "Percent Expression") 
+
+FP_head = theme(plot.title = element_text(size = 20, face= "bold", colour = "firebrick") )
+FP_head2 = theme(plot.title = element_text(size = 30, face= "bold", colour = "firebrick") )
+
+#Color library
+palettes <- ggthemes_data[["tableau"]][["color-palettes"]][["regular"]]
+for (palname in names(palettes)) {
+  pal <- tableau_color_pal(palname)
+  max_n <- attr(pal, "max_n")
+  show_col(pal(max_n))
+  title(main = palname)
+}
+
+#Example
+ggthemes_data$tableau$`color-palettes`$regular$`Classic Cyclic`
+palettes$`Classic Cyclic`$value
+
+#Expand palette
+colorRampPalette(palettes$`Classic Cyclic`$value)(15)
+```
+
+
+#Instant command
+```{r}
+Clustering1 <- function(tmp,dim=30,res=0.3,spread =1, dist = 1,group = "ID" ){
+      DefaultAssay(tmp) = "RNA"
+      tmp <- NormalizeData(tmp) %>% FindVariableFeatures() %>% ScaleData() %>% RunPCA(verbose = FALSE)
+      tmp <- RunHarmony(tmp, group.by.vars = group)
+      tmp <- RunUMAP(tmp, reduction = "harmony", dims = 1:dim, min.dist = dist, spread = spread )
+      tmp <- FindNeighbors(tmp, reduction = "harmony", dims = 1:dim) %>% FindClusters(resolution = res)
+      return(tmp)
+}
+
+PTGER4.Group = function(Obj1, Identity = "Identity.Celltype", Batch = "Batch.scRNA"){
+      df = data.frame()
+      Cluster = unique(Obj1[[]][,Identity]) %>% as.character()
+      Idents(Obj1) = Identity
+      for(i in Cluster){
+            Obj2 = subset(Obj1, idents = i)
+            AllBatch = unique(as.character(Obj2[[]][,Batch] ))
+            for(j in AllBatch ){
+                  Idents(Obj2) = Batch
+                  Obj3 = subset(Obj2, idents = j)
+                  tmp = FetchData(Obj3, vars = "PTGER4",slot="data") %>% arrange(desc(PTGER4))
+                  tmpA = filter(tmp,PTGER4 == 0)
+                  tmp = filter(tmp,PTGER4 != 0)
+                  if(nrow(tmpA) > 0 ) {
+                        tmpA$PTGER4.Group = "Undetected"
+                        } 
+                  if(nrow(tmp) > 0 ) {
+                        tmp$PTGER4.Group = "Low"
+                        tmp$PTGER4.Group[1:round(nrow(tmp)/3)] = "High" 
+                        tmp$PTGER4.Group[(round(nrow(tmp)/3)+1):(round(nrow(tmp)/3*2))] = "Intermediate"
+                        }
+                  tmp = rbind(tmp,tmpA)
+                  if(nrow(tmp) > 0 ) {
+                        tmp$Cluster = i
+                        tmp$Batch = j
+                        }
+                  print(paste0(i," ",j, " ... ", (nrow(tmp) == ncol(Obj3)  ) ) )
+                  df = rbind(df,as_tibble(tmp,rownames="CB"))
+            }
+      }
+      print(paste0("Validation : ", nrow(df) == nrow(Obj1[[]]) ) )
+      tmp2 = df$PTGER4.Group
+      names(tmp2) = df$CB
+      return(tmp2)
+}
+
+FullDE <- function(Obj,Group = "PTGER4.Group.Celltype2", Batch = "ID",A = "High", B = "Low"){
+      DE = list()
+      Idents(Obj) = Batch
+      for(i in unique(Obj[[]][,Batch]) ){
+            tmp = subset(Obj, idents = i)
+            print(paste0(i," : ", ncol(tmp), " Cells"))
+            tryCatch({
+                  Idents(tmp) = Group
+                  DE[[i]] = FindMarkers(tmp,ident.1 = A, ident.2 = B, logfc.threshold = 0,min.pct =0.01 )
+            }, error = function(e){print(e)})
+      }
+      #Sum table
+      df = data.frame()
+      for(i in names(DE) ){
+            tmp = DE[[i]] %>% as_tibble(rownames = "Genes") %>% dplyr::select(Genes, avg_log2FC)
+            tmp$Datasets = i
+            df = rbind(df,tmp)
+      }
+      df = spread(df, Genes, avg_log2FC) %>% as.data.frame()
+      rownames(df) = df$Datasets
+      df = dplyr::select(df,-Datasets)
+      df2 = matrix(nrow = ncol(df),ncol=0) %>% data.frame()
+      rownames(df2) = colnames(df)
+      df2$Upregulation = "NA"
+      df2$Downregulation = "NA"
+      for(i in colnames(df)){
+            tmp = df[,i] > 0 
+            df2[i,"Upregulation"] = sum(tmp)
+            tmp = df[,i] < 0 
+            df2[i,"Downregulation"] = sum(tmp)
+      }
+      df2$Upregulation = as.numeric(df2$Upregulation)
+      df2$Downregulation = as.numeric(df2$Downregulation)
+      DE[["FoldChange.Table"]] = df
+      DE[["FoldChange.Sum"]] = df2
+      return(DE)
+}
+
+RevIden <- function(x){
+      factor(x, levels = rev(levels(x)))
+}
+
+find <- function(object,gene){
+      rownames(object)[grep(gene,rownames(object) )] %>% mixedsort()
+}
+find2 <- function(Genes,SearchGenes){
+      Genes[grep(SearchGenes,Genes )] %>% mixedsort()
+}
+
+GeneGroup <- function(df,GeneList ){
+  tmp = data.frame(matrix(ncol = (ncol(df)+1), nrow = 0))
+  colnames(tmp) = c(colnames(df),"Set")
+  for(i in names(GeneList)){
+      tmp1 = filter(df, Genes %in% GeneList[[i]] ) %>% filter(!Genes %in% tmp[,"Genes"])
+      tmp1$Set = i
+      tmp = rbind(tmp,tmp1)
+  }
+  tmp$Set = factor(tmp$Set, levels = names(GeneList))
+  tmp$Genes = factor(tmp$Genes, levels = unique(unlist(GeneList)) )
+  return(tmp)
+}
+
+pCat = function(df, pval.use = "p_val_adj"){
+  df$pval_cat = ">0.05"
+  df$pval_cat[(df[,pval.use] < 0.05)] = "<0.05"
+  df$pval_cat[(df[,pval.use] < 0.01)] = "<0.01"
+  df$pval_cat[(df[,pval.use] < 0.001)] = "<0.001"
+  df$pval_cat = factor(df$pval_cat, levels = c(">0.05","<0.05","<0.01","<0.001"))
+  return(df)
+}
+
+dir = "~/RStudioProject/scRNA/Fig"
+dir.create(dir)
+PNG <- function(x,w = 6, h = 6.3, r =400){
+      png(filename = paste0(dir,"/",x,".png" ),
+          width = w, 
+          height = h, 
+          units = "in", 
+          res = r)
+}
+
+PDF <- function(x,w = 6, h = 6.3,r=400){
+      pdf(file = paste0(dir,"/",x,".pdf" ),
+          width = w, 
+          height = h)
+}
+
+```
+
+#Cross reference Human-Mouse
+##Mouse-Human Cross-ref
+```{r}
+mouse_human_genes = read.csv("http://www.informatics.jax.org/downloads/reports/HOM_MouseHumanSequence.rpt",sep="\t")
+MGenes = filter(mouse_human_genes, Common.Organism.Name == "mouse, laboratory")$Symbol
+HGenes = filter(mouse_human_genes, Common.Organism.Name == "human") %>% arrange(Symbol)
+saveRDS(mouse_human_genes, file ="~/RStudioProject/scRNA/Ref/mouse_human_genes.230828.rds")
+```
+###Jax
+```{r}
+output = data.frame(matrix(ncol=2,nrow=0))
+colnames(output) = c("Mouse_gene","Human_gene")
+tmp1 = filter(mouse_human_genes,Common.Organism.Name == "mouse, laboratory")
+tmp1 = unique(tmp1$Symbol) %>% sort()
+for(gene in tmp1){
+  class_key = (mouse_human_genes %>% filter(Symbol == gene & Common.Organism.Name=="mouse, laboratory"))[['DB.Class.Key']]
+    if(!identical(class_key, integer(0)) ){
+      human_genes = (mouse_human_genes %>% filter(DB.Class.Key == class_key & Common.Organism.Name=="human"))[,"Symbol"]
+      for(human_gene in human_genes){
+        output[gene,] = c(gene,human_gene)
+      }
+    }
+  }
+refM2H = output
+
+output = data.frame(matrix(ncol=2,nrow=0))
+colnames(output) = c("Human_gene","Mouse_gene")
+tmp1 = filter(mouse_human_genes,Common.Organism.Name == "human")
+tmp1 = unique(tmp1$Symbol) %>% sort()
+for(gene in tmp1){
+  class_key = (mouse_human_genes %>% filter(Symbol == gene & Common.Organism.Name=="human"))[['DB.Class.Key']]
+    if(!identical(class_key, integer(0)) ){
+      
+      mouse_genes = (mouse_human_genes %>% filter(DB.Class.Key == class_key & Common.Organism.Name=="mouse, laboratory"))[,"Symbol"]
+      for(mouse_gene in mouse_genes){
+        output[gene,] = c(gene,mouse_gene)
+      }
+    }
+  }
+refH2M = output
+
+ref = list(refM2H,refH2M)
+names(ref) = c("M2H","H2M")
+saveRDS(ref, file = "~/RStudioProject/scRNA/Ref/Ref_Mouse-Human.221213.rds")
+```
+
+##biomart
+```{r}
+library(org.Hs.eg.db)
+library(org.Mm.eg.db)
+library(biomaRt)
+hmart = useMart("ensembl", dataset = "hsapiens_gene_ensembl")
+hmart <- getBM(filters = "hgnc_symbol", 
+                attributes = c("ensembl_gene_id", "description","hgnc_symbol"),
+                values = rownames(BOC), mart = hmart) 
+ref$hmart = hmart
+mmart = useMart("ensembl", dataset = "mmusculus_gene_ensembl")
+mmart <- getBM(filters = "mgi_symbol", 
+                attributes = c("ensembl_gene_id", "description","external_gene_name","mgi_symbol"),
+                values = rownames(LLC), mart = mmart) 
+ref$mmart = mmart
+#ensembl = useMart(biomart = "ENSEMBL_MART_ENSEMBL", dataset="mmusculus_gene_ensembl", host = "https://www.ensembl.org") #Alternative mart
+saveRDS(ref,"~/RStudioProject/scRNA/Ref/Ref_Mouse-Human.230828.rds")
+```
+
+#Gene
+##msigDb
+###Human
+```{r}
+fgsea_sets_H  <- msigdbr(species = "human", category = "H" ) %>% split(x = .$gene_symbol, f = .$gs_name)
+fgsea_sets_c2 <- msigdbr(species = "human", category = "C2" ) %>% split(x = .$gene_symbol, f = .$gs_name)
+fgsea_sets_c5 <- msigdbr(species = "human", category = "C5" ) %>% split(x = .$gene_symbol, f = .$gs_name)
+fgsea_sets = append(fgsea_sets_H, fgsea_sets_c2)
+```
+
+###Mouse
+```{r}
+mfgsea_sets_H  <- msigdbr(species = "mouse", category = "H" ) %>% split(x = .$gene_symbol, f = .$gs_name)
+mfgsea_sets_c2 <- msigdbr(species = "mouse", category = "C2" ) %>% split(x = .$gene_symbol, f = .$gs_name)
+mfgsea_sets_c5 <- msigdbr(species = "mouse", category = "C5" ) %>% split(x = .$gene_symbol, f = .$gs_name)
+mfgsea_sets = append(mfgsea_sets_H, mfgsea_sets_c2)
+mfgsea_sets_c2 = NULL
+```
+
+##GeneSet
+```{r}
+#ref = readRDS(file = "//home/siwakorn/GO_term/Ref_Mouse-Human.221213.rds")
+ref <- readRDS("Ref_Mouse-Human.221213.rds")
+names(ref) = c("M2H","H2M")
+
+
+GeneSet = list()
+GeneSet$Markers.Lineage = c("PTPRC","CD3D","CSF1R","CSF3R","MS4A1","CD19","IGLC1","MKI67","COL6A2","KRT18","PECAM1","HDC")
+GeneSet$Markers.TNK = c("CD3E","CD4","CD8A","TRDC","NCR1","KLRD1","KLRC1","NCAM1","FOXP3","MKI67","IGKC","ISG15","CSF3R","percent.mt","nFeature_RNA","nCount_RNA")
+GeneSet$Markers.Myeliod = c("CSF1R","CSF3R","ADGRE1",
+                            "C1QA","C1QB","AXL","MERTK","MRC1","PTGS2","PTGER2","VCAN","IL1B","PTGS1","PTGER4","VEGFA",
+                            "SPP1","ISG15","IFIT1","MKI67",
+                            "HLA-DRA","HLA-DRB1","HLA-DMA","HLA-DPA1","HLA-DPB1",
+                            "CLEC9A","XCR1","LAMP3","CCR7","CD274","TNFSF9","TNFSF18",
+                            "CD1C","CD1E","CD1A","HLA-DQA1","HLA-DQA2","HLA-DQB2","CD207","FCER1A",
+                            "LILRA4","IRF7","IRF8","CLEC4C",
+                            "IGKC","IGLC3","MALAT1","MT-CO1")
+GeneSet$Markers.CD8 = c("CD8A","CD44","CD69","TCF7","SELL","IL7R","BACH2","LEF1", "KLRB1","LTB",
+                        "GZMK","NFATC2","GZMH",
+                        "GZMB","GNLY","KLRD1","PRF1","RORA","KLF3","IKZF2","KLRC2",
+                        "IFNG","HSPA1B","BAG3","XCL1", 
+                        "ISG15","IFIT1",
+                        "TNFRSF4","TNFRSF18",
+                        "HAVCR2","LAG3","PDCD1","ITGAE","ENTPD1","ID3",
+                        "PTGER4")
+
+GeneSet$PGE2 = c("PTGS1","PTGS2","PTGES","PTGES2","PTGES3","PTGER1","PTGER2","PTGER3","PTGER4")
+GeneSet$PGE2B = c("PTGS1","PTGS2","PTGER1","PTGER2","PTGER3","PTGER4")
+
+```
+
+###GeneSet$DE
+```{r}
+GeneSet$DE = list()
+GeneSet$DE$LLC = c("IL1B","IL1A","HIF1A","PTGS1","PTGS2","VEGFA")
+
+GeneSet$DE$Common <- c("FOS","FOSB","FOSL2","JUN","JUNB","JUND","ATF3","EGR1","ETS1","NR3C1","ATF7IP","ACTB","ACTG1","ACTR2","CCL3","CCL4","CCL3L1","CCL4L2","CCL5","CXCL13","CXCR4","XCL1","XCL2","HMGA1","HMGB1","HMGB2","HMGN1","HMGN3","NR4A1","NR4A2","NR4A3","NFKBIZ","NFKB1","PSMA1","PSMA2","PSMA3","PSMA4","PSMA5","PSMA6","PSMA7","PSMB1","PSMB2","PSMB3","PSMB4","PSMB5","PSMB6","PSMB7","PSMB8","PSMB9","PSMC1","PSMC2","PSMC3", "PSMD7","PSMD8","PSMD9","PSME1","PSME2","PSME3" )
+
+
+GeneSet$DE$NFKB = c(rownames(BOC)[grep("^NFK",rownames(BOC))], 
+                                    rownames(BOC)[grep("^NR4",rownames(BOC))],
+                                    "REL","RELA","RELB","BCL2","BCL3")
+
+GeneSet$DE$AP1.Manual = c(rownames(BOC)[grep("^FOS",rownames(BOC))],rownames(BOC)[grep("^JUN",rownames(BOC))],rownames(BOC)[grep("^ATF",rownames(BOC))])
+
+
+GeneSet$DE$MTC5 = c(rownames(BOC)[grep("^ATP",rownames(BOC))] ) %>% sort()
+GeneSet$DE$MTC1 = c(rownames(BOC)[grep("^NDU",rownames(BOC))] ) %>% sort()
+GeneSet$DE$MTC23 = c(rownames(BOC)[grep("^SDH",rownames(BOC))] ,rownames(BOC)[grep("^UQC",rownames(BOC))] ) %>% sort()
+GeneSet$DE$MTC4 = c(rownames(BOC)[grep("^COX",rownames(BOC))] ) %>% sort()
+GeneSet$DE$MTC = c("NDUFA1","NDUFA2","NDUFA3","NDUFA4","NDUFA5","NDUFA6","NDUFA8","NDUFA10","NDUFB1","NDUFB2","NDUFB3","NDUFB4","NDUFB5","NDUFB6","NDUFB8","NDUFB9","NDUFC1","NDUFS1","NDUFS5","NDUFS6","COX4I1","COX5A","COX5B","COX6A1","COX6B1","COX6C","COX7A2","COX7A2L","COX7B","COX7C","COX8A","COX14","COX15","COX16", find(BOC,"^ATP5"),"SDHA","UQCC2","UQCC3","UQCR10","UQCR11","UQCRB","UQCRC1","UQCRC2","UQCRH","UQCRQ" )
+
+GeneSet$DE$ETC = list(
+  "Complex I" = find(BOC, "^NDUF"),
+  "Complex II" = find(BOC, "^SDH"),
+  "Complex III" = c(find(BOC, "^UQC"),find(BOC,"^CYC")),
+  "Complex IV" = find(BOC,"^COX"),
+  "Complex V" = find(BOC, "^ATP")
+)
+GeneSet$DE$ETC1 = list(
+  "Complex I" = find(BOC, "^NDUF"),
+  "Complex II" = find(BOC, "^SDH"),
+  "Complex III" = c(find(BOC, "^UQC"),find(BOC,"^CYC")),
+  "Complex IV" = find(BOC,"^COX")
+)
+GeneSet$DE$ETC2 = list(
+  "Complex V" = find(BOC, "^ATP")
+)
+
+GeneSet$DE$ETC.Ref = list(
+  "Complex I" = fgsea_sets$WP_MITOCHONDRIAL_COMPLEX_I_ASSEMBLY_MODEL_OXPHOS_SYSTEM,
+  "Complex II" = fgsea_sets$WP_MITOCHONDRIAL_COMPLEX_II_ASSEMBLY,
+  "Complex III" = fgsea_sets$WP_MITOCHONDRIAL_COMPLEX_III_ASSEMBLY,
+  "Complex IV" = fgsea_sets$WP_MITOCHONDRIAL_COMPLEX_IV_ASSEMBLY,
+  "Complex V" = fgsea_sets_c5$GOCC_PROTON_TRANSPORTING_ATP_SYNTHASE_COMPLEX
+)
+GeneSet$DE$ETC.Ref2 = list(
+  "Complex I" = intersect(GeneSet$DE$ETC$`Complex I`, fgsea_sets$WP_MITOCHONDRIAL_COMPLEX_I_ASSEMBLY_MODEL_OXPHOS_SYSTEM),
+  "Complex II" = intersect(GeneSet$DE$ETC$`Complex II` ,fgsea_sets$WP_MITOCHONDRIAL_COMPLEX_II_ASSEMBLY),
+  "Complex III" = intersect(GeneSet$DE$ETC$`Complex III`, fgsea_sets$WP_MITOCHONDRIAL_COMPLEX_III_ASSEMBLY),
+  "Complex IV" = intersect(GeneSet$DE$ETC$`Complex IV`, fgsea_sets$WP_MITOCHONDRIAL_COMPLEX_IV_ASSEMBLY),
+  "Complex V" = intersect(GeneSet$DE$ETC$`Complex V`  ,fgsea_sets_c5$GOCC_PROTON_TRANSPORTING_ATP_SYNTHASE_COMPLEX)
+)
+GeneSet$DE$ETC.Ribosome = c(GeneSet$DE$ETC.Ref2,GeneSet$DE$Ribosome)
+
+
+GeneSet$DE$ETC.selected = c("NDUFA5","NDUFA6","NDUFA7","NDUFA8","NDUFB5","NDUFB6", "NDUFB8", "NDUFB9" ,"NDUFB10","NDUFB11","NDUFS5","NDUFV2" , "NDUFV3" ,"COX4I1","COX5A", "COX5B" , "COX6B1", "ATP5F1C", "ATP5F1D", "ATP5F1EP2" ,"ATP5MC1","ATP5MC2" ,"ATP5PD","ATP5PF","ATP5MF","ATP5ME" ,"ATP5IF1", "ATP6V1F","ATP6V1G1" )
+GeneSet$DE$ETC.selected2 = c("NDUFA6","NDUFA7","NDUFB5","SDHAF1","SDHAF2","COX5A","COX5B","COX6A1","ATP5FA1","ATP5F1C","ATP5MF" )
+
+
+GeneSet$DE$MT = c(rownames(BOC)[grep("^MT-",rownames(BOC))] ) %>% sort()
+GeneSet$DE$TOMM = c(rownames(BOC)[grep("^TOMM",rownames(BOC))], rownames(BOC)[grep("^TIMM",rownames(BOC))]  ) %>% sort()
+
+
+
+GeneSet$DE$RPL = c(rownames(BOC)[grep("^RPL",rownames(BOC))] ) %>% mixedsort() %>% intersect(fgsea_sets$KEGG_RIBOSOME)
+GeneSet$DE$RPS = c(rownames(BOC)[grep("^RPS",rownames(BOC))] ) %>% mixedsort() %>% intersect(fgsea_sets$KEGG_RIBOSOME)
+GeneSet$DE$Ribosome = list("RP large subunit" = GeneSet$DE$RPL, "RP small subunit" = GeneSet$DE$RPS)
+GeneSet$DE$RibosomeMito = c(find(BOC,"^MRP"))  %>% mixedsort() 
+
+
+
+GeneSet$DE$Proteasome = c(rownames(BOC)[grep("^PSM",rownames(BOC))] ,rownames(BOC)[grep("^UB",rownames(BOC))] ) %>% sort()
+GeneSet$DE$ISG = c(rownames(BOC)[grep("^IFI",rownames(BOC))] , rownames(BOC)[grep("^ISG",rownames(BOC))], rownames(BOC)[grep("^IRF",rownames(BOC))]  ) %>% sort()
+
+
+GeneSet$DE$Myc.Morrish = read.csv("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/Ref/Myc.target.Morrish.txt", sep="")$Genes
+
+
+
+GeneSet$DE$Chemokine = c(rownames(BOC)[grep("^CCL",rownames(BOC))],
+                                    rownames(BOC)[grep("^CXC",rownames(BOC))],
+                                    rownames(BOC)[grep("^XCL",rownames(BOC))]
+                                    ) %>% sort()
+GeneSet$DE$Glycolysis = c("HK1","HK2","HK3","ENO1","ENO2","ALDOC","PGM1","PGM2","PGM3","GALE","GALM","PYGL","SLC2A1","SLC2A2","SLC2A3")
+GeneSet$DE$Glycolysis2 = c(GeneSet$DE$Glycolysis, fgsea_sets$WP_AEROBIC_GLYCOLYSIS, fgsea_sets$MOOTHA_GLYCOLYSIS, fgsea_sets$REACTOME_GLYCOLYSIS) %>% unique() %>% sort()
+GeneSet$DE$Glycolysis = c("HK1","ENO1","LDHA","PGAM1","PFKP","PKM","TPI1")
+GeneSet$DE$Lipid = c("ACAA1","CPT1A","CPT1B","ECHS1","DBI","FABP5","LGALS1")
+GeneSet$DE$MalateShuttle = fgsea_sets$BIOCARTA_MALATEX_PATHWAY
+GeneSet$DE$MalateShuttle = c("MDH1","MDH2","GOT1","GOT2","SLC25A12","SLC25A13","SLC25A11")
+
+GeneSet$DE$T_CD8= list("Unsupervisely" =c("CD44","CD69","FOS","FOSB","JUN","JUNB","JUND","KFKB1","NFKB2","NFKBIA","NFKBIB","NFKBIZ","NR4A1","NR4A2","NR4A3","KLF6","ID2","BCL6","IFNG","TCF7","FOXO1","BCL11B","LEF1","BACH2","MT-ND1","MT-ND2","MT-ND3","STMN1","HIST1H1D","RPLP1","HIST1H2AL","CDCA7","MKI67","HMGN2","HMGB2","TUBB","ATP5MC2","ATP5MG","ATP5V0B","NDUFB2","COX6A1","UQCRB","DNAJC15","BAX","ACTB","ACTG1","PSMB9","PSMB10"))
+
+GeneSet$DE$CD8.Up = c("CD44","CD69","FOS","FOSB","JUN","JUNB","JUND","KFKB1","NFKB2","NFKBIA","NFKBIB","NFKBIZ","NR4A1","NR4A2","NR4A3","KLF6","ID2","BCL6","IFNG","TCF7","FOXO1","BCL11B","LEF1","BACH2")
+
+GeneSet$DE$CD8.Overview = list(
+  "Activation" = c("CD44","CD69","FOS","FOSB","JUN","JUNB","JUND","NFATC1","IFNG"),
+  "TCR" = c("CD3D","CD3G","CD27","CD28"),
+  "NFKB" = c("NFKB1","NFKBIZ","NR4A1","NR4A2","NR4A3","RELB"), 
+  "IL2-signaling" = c("IL2RA","IL2RB","IL2RG","STAT5A","STAT5B"),
+  "ETC" = c(GeneSet$DE$MTC1[1:3],GeneSet$DE$MTC23[1:3],GeneSet$DE$MTC4[1:3],GeneSet$DE$MTC5[49:52]), 
+  "Ribosome" = GeneSet$DE$Ribosome[1:6], 
+  "Proteosome" = GeneSet$DE$Proteosome[11:15],
+  "-" = c("IFNG","TGFB1","HLA-DRA","HLA-DRB1","DNMT1","JARID1B","CTNNB1") )
+
+GeneSet$DE$CD8.Overview2 = list(
+  "Activation" = c("CD44","CD69","FOS","FOSB","JUN","JUNB","JUND","NFATC1","IFNG"),
+  "NFKB" = c("NFKB1","NFKBIZ","NR4A1","NR4A2","NR4A3","RELB"), 
+  "TCR" = c("CD3D","CD3G","CD27","CD28"),
+  "IL2-signaling" = c("IL2RA","IL2RB","IL2RG","STAT5A","STAT5B"),
+  "OXPHOS" = GeneSet$DE$ETC.selected2,
+  "Ribosome" = c("RPS2","RPS3","RPS11","RPL3","RPL11","RPL19") )
+
+GeneSet$DE$CD4.Beyer = list(
+  "TCR" = c("CD3D","CD3G","CD27","CD28"),
+  "IL2-signaling" = c("IL2","IL2RA","IL2RB","IL2RG","STAT5A","STAT5B"),
+  "PGC" = c("PPARG" ,"PPARGC1A","PPARGC1B") )
+
+GeneSet$DE$TIM.Overview = list(
+  "AP-1" = c("FOS","FOSB","FOSL1","FOSL2","JUN","JUNB","JUND"),
+  "NFKB" = c("NFKB1","NKFB2","NFKBIZ","NR4A1","NR4A2","NR4A3","RELB","RELA"), 
+  "ETC" = c(GeneSet$DE$MTC1[1:3],GeneSet$DE$MTC23[1:3],"UQCC2","UQCC3",GeneSet$DE$MTC4[13:16],GeneSet$DE$MTC5[49:52]), 
+  "Ribosome" = GeneSet$DE$Ribosome[3:8], 
+  "Proteosome" = GeneSet$DE$Proteosome[11:15])
+GeneSet$DE$Bonavita = list(
+  "Promoting" = c("PTGS2","IL6","CXCL1","CXCL2","CSF3","IL1A","IL1B","CCL2","VEGFA"),
+  "Inhibiting" = c("IL12A","IL12B","CXCL9","CXCL10","CCL5","STAT1")
+)
+GeneSet$DE$TIM.Overview2 = list(
+  "AP-1" = c("FOS","FOSB","FOSL1","FOSL2","JUN","JUNB","JUND"),
+  "NFKB" = c("NFKB1","NKFB2","NFKBIZ","NR4A1","NR4A2","NR4A3","RELB","RELA"), 
+  "ETC" = GeneSet$DE$ETC.selected2,
+  "Ribosome" = c("RPS2","RPS3","RPS11","RPL3","RPL11","RPL19") )
+
+GeneSet$DE$Bonavita = list(
+  "Promoting" = c("PTGS2","IL6","CXCL1","CXCL2","CSF3","IL1A","IL1B","CCL2","VEGFA"),
+  "Inhibiting" = c("IL12A","IL12B","CXCL9","CXCL10","CCL5","STAT1")
+)
+
+GeneSet$DE$Module1 = list(
+  "Regulator" = c("MYC","PPARGC1B","CEBPA","CEBPB"),
+  "ETC" = GeneSet$DE$ETC.selected,
+  "Ribosome" = GeneSet$DE$Ribosome,
+  "ISG" = GeneSet$DE$ISG,
+  "Proteosome" = GeneSet$DE$Proteasome,
+  "Glycolysis" = GeneSet$DE$Glycolysis,
+  "MalateShuttle" = GeneSet$DE$MalateShuttle
+)
+geneSet$DE[["Module2"]] = list(
+  "NFKB-Angio" = geneSet$Module1B,
+  "Mt-encoded" = c("mt-Atp6","mt-Atp8","mt-Co1","mt-Co2","mt-Co3","mt-Cytb","mt-Nd1","mt-Nd2","mt-Nd3","mt-Nd4"),
+  "Proteosome" = c("Psma2","Psma3","Psma4","Psma5","Psma7","Psmb1","Psmb2","Psmb3","Psmb5","Psmb6","Ubb"),
+  "OXPHOS" = geneSet$ETC.selected,
+  "Ribosome" = c(geneSet$Ribosome),
+  "Isg" = c("Ifi203","Ifi204","Ifi205","Ifi206","Ifi207","Ifi208","Ifi209","Ifi211","Ifi213","Ifi27la2","Ifi35","Ifi44","Ifi47","Ifih1","Ifit1","Ifit2","Ifit3","Ifitm2","Ifitm3",
+                         "Isg15","Isg20","Irf1","Irf2","Irf7","Irf8","Irf9",
+                         "Irf2bp1","Irf2bp2","Irf2bpl","Irf3","Irf4","Irf5",
+                         "Ifi27","Ifitm1","Ifitm5","Ifitm6"),
+  "Glycolysis" = GeneSet$DE$Glycolysis,
+  "MalateShuttle" = GeneSet$DE$MalateShuttle
+)
+
+
+GeneSet$DE$HallmarkIFNG = fgsea_sets$HALLMARK_INTERFERON_GAMMA_RESPONSE
+GeneSet$DE$HallmarkIFN_I = fgsea_sets$HALLMARK_INTERFERON_ALPHA_RESPONSE
+GeneSet$DE$TAVOR_CEBPA_TARGETS_UP = fgsea_sets_c2$TAVOR_CEBPA_TARGETS_UP
+GeneSet$DE$GERY_CEBP_TARGETS = fgsea_sets$GERY_CEBP_TARGETS
+```
+
+####Revise
+```{r}
+GeneSet$DE2 = list()
+GeneSet$DE2[["AP1"]] = c("FOS","FOSB","FOSL2","JUN","JUNB","JUND","ATF2")
+GeneSet$DE2[["NFKB"]] =c("NFKB1","NFKB2","NFKBIZ","REL","RELB","NR4A1","NR4A2","NR4A3")
+GeneSet$DE2[["OXPHOS"]] =c("NDUFA1","NDUFA11","NDUFA13","NDUFA4","NDUFA7","DNUFA8","NDUFB3","NDUFB4","NDUFB5","NDUFB10","NDUFB11","NDUFS5","NDUFS6","SDHAF1","SDHAF2","SDHAF","SDHA","SDHB","SDHC","SDHD","UQCR10","UQCR11","UQCRB","UQCRC1","UQCRQ","COX10","COX14","COX17","COX5A","COX5B","COX6A1","COX6B1","COX6C","COX7A2","COX7C","COX8A","ATP5F1A","ATP5F1B","ATP5F1C","ATP5F1D","ATP5F1E","ATP5MC2","ATP5MC3","ATP5MF","ATP5MG","ATP5MPL","ATP5PD","ATP5PF","ATP5PO")
+```
+
+
+##geneSet (mouse)
+```{r}
+geneSet = list()
+geneSet$LLC = c("Il1a","Il1b","Hif1a","Vegfa","Ptgs1","Ptgs2")
+for(i in names(GeneSet$DE)){
+  print(i)
+  if(class(GeneSet$DE[[i]]) == "list" ){
+    geneSet[[i]] = list()
+    for(j in names(GeneSet$DE[[i]])){
+      geneSet[[i]][[j]] = ref$H2M[GeneSet$DE[[i]][[j]],"Mouse_gene"]
+    }
+  } else {
+    geneSet[[i]] = ref$H2M[GeneSet$DE[[i]],"Mouse_gene"]
+  }
+}
+geneSet$RPS = c( find(LLC, "Rps") ) %>% mixedsort() %>% intersect(mfgsea_sets$KEGG_RIBOSOME)
+geneSet$RPL = c( find(LLC, "Rpl") )  %>% mixedsort() %>% intersect(mfgsea_sets$KEGG_RIBOSOME)
+geneSet$Ribosome = list("RP large subunit" = geneSet$RPL, "RP small subunit" =  geneSet$RPS ) 
+
+geneSet$ETC = list(
+  "Complex I" = find(LLC, "Nduf"),
+  "Complex II" = find(LLC, "Sdh"),
+  "Complex III" = c(find(LLC, "Uqc"),find(LLC,"Cyc")),
+  "Complex IV" = find(LLC,"Cox"),
+  "Complex V" = find(LLC, "^Atp")
+)
+geneSet$ETC.Ref2 = list(
+  "Complex I" = intersect(geneSet$ETC$`Complex I`, mfgsea_sets$WP_MITOCHONDRIAL_COMPLEX_I_ASSEMBLY_MODEL_OXPHOS_SYSTEM),
+  "Complex II" = intersect(geneSet$ETC$`Complex II` ,mfgsea_sets$WP_MITOCHONDRIAL_COMPLEX_II_ASSEMBLY),
+  "Complex III" = intersect(geneSet$ETC$`Complex III`, mfgsea_sets$WP_MITOCHONDRIAL_COMPLEX_III_ASSEMBLY),
+  "Complex IV" = intersect(geneSet$ETC$`Complex IV`, mfgsea_sets$WP_MITOCHONDRIAL_COMPLEX_IV_ASSEMBLY),
+  "Complex V" = intersect(geneSet$ETC$`Complex V`  ,mfgsea_sets_c5$GOCC_PROTON_TRANSPORTING_ATP_SYNTHASE_COMPLEX)
+)
+
+geneSet$ETC2 = c("Ndufa1","Ndufa2","Ndufa3","Ndufa4","Ndufa5","Ndufa6","Ndufa7","Ndufa11","Ndufa12","Ndufa13","Ndufb2","Ndufb4","Ndufc1","Ndufs5","Ndufs6","Ndufv3","Uqcc2","Uqcr10","Uqcr11","Uqcrb","Uqcrh","Uqcrq","Cox5b","Cox6b1","Cox6c","Cox7a2","Cox7b","Cox7c","Cox8a","Atp5e","Atp5j","Atp5j2","Atp5k","Atp5l","Atp5md","Atp5mpl","Ets1","Ets2","Etv1","Etv2","Hif1a","Sod2","Pparg","Ppargc1a","Gpx1","Fis1")
+
+geneSet$ETC.selected2 = list(
+  "Complex I" = c("Ndufa2","Ndufa4","Ndufa6","Ndufa9","Ndufa11","Ndufa13","Ndufb2","Ndufb3","Ndufb7","Ndufb9","Ndufb10","Ndufb11","Ndufc2","Ndufs3","Ndufs4","Ndufs6","Ndufs8"),
+  "Complex III" = c("Uqcc2","Uqcr10","Uqcrb","Uqcrh","Cycs"),
+  "Complex IV" = c("Cox4i1","Cox5a","Cox5b","Cox6b1","Cox6b2","Cox7a2","Cox7b","Cox8a","Cox14"),
+  "Complex V" = c("Atp5c1","Atp5d","Atp5e","Atp5g1","Atp5g2","Atp5h","Atp5j","Atp5j2")
+)
+geneSet$ETC.selected3 = list(
+  "Complex I" = c("Ndufa2","Ndufa4","Ndufa6","Ndufa11","Ndufb2","Ndufb3","Ndufb7","Ndufb9","Ndufb10","Ndufb11","Ndufc2","Ndufs4","Ndufs6","Ndufs8"),
+  "Complex III" = c("Uqcc2","Uqcr10","Uqcrb","Uqcrh","Cycs"),
+  "Complex IV" = c("Cox5a","Cox5b","Cox6b1","Cox7a2","Cox7b","Cox8a"),
+  "Complex V" = c("Atp5c1","Atp5d","Atp5e","Atp5g1","Atp5g2","Atp5h","Atp5j","Atp5j2")
+)
+
+
+geneSet$Mitochondria = list(
+  "mtDNA" = find(LLC,"^mt-"),
+  "Translocase" = c(find(LLC,"^Timm"), find(LLC,"^Tomm")),
+  "Other" = c("Mfn1","Mfn2","Nme3","Mff","Dnm11l","Stat2","Opa1","Clpb","Clpp","Hspd1"),
+  "Pyruvate" = find(LLC,"Pdh")
+  
+)
+geneSet[["ETC.selected"]] = c("Ndufa5","Ndufa6","Ndufa7","Ndufa8","Ndufb5","Ndufb6","Ndufb8","Ndufb9","Ndufb10","Ndufb11","Ndufc2","Ndufs5","Ndufv2","Ndufv3",
+                         "Cox4i1","Cox5a","Cox5b","Cox6b1","Cox7a2","Cox7a2l","Cox7b","Cox7c","Cox8a",
+                         "Atp5b","Atp5c1","Atp5d","Atp5e","Atp5g1","Atp5g2","Atp5h","Atp5j","Atp5j2","Atp5k","Atpif1","Atp6v1f","Atp6v1g1")
+geneSet[["Glycolysis"]] = c("Hk1","Hk2","Hk3","Eno1","Eno2","Aldoc","Pgm1","Pgm2","Pgm3","Gale","Galm","Pygl","Slc2a1","Slc2a2","Slc2a3")
+geneSet[["Glycolysis2"]] = c(geneSet[["Glycolysis"]],mfgsea_sets$WP_AEROBIC_GLYCOLYSIS,mfgsea_sets$REACTOME_GLYCOLYSIS,mfgsea_sets$MOOTHA_GLYCOLYSIS) %>% unique() %>% sort()
+geneSet[["Glycolysis3"]] = c("Hk1","Hk2","Hk3","Eno1","Eno2","Aldoc","Pgm1","Pgm2","Pgm3","Pfkm","Pfkl","Pfkp","Pkm","Gale","Galm","Pygl","Slc2a1","Slc2a2","Slc2a3")
+geneSet$CD8.Overview2 = geneSet$CD8.Overview
+geneSet$CD8.Overview2$ETC = find(LLC,"^Atp5")
+geneSet$CD8.Overview2$`-` = c(geneSet$CD8.Overview$`-`, find(LLC,"Il2r"))
+
+geneSet$cAMP = mmart[grep("cAMP",mmart$description),]$mgi_symbol %>% sort()
+
+c(mmart[grep("Glutathi]",mmart$description,ignore.case = T),]$mgi,"Cat","Sod1","Sod2","Sod3")
+
+
+geneSet$MT.All =  mmart[grep("Mitochondria",mmart$description,ignore.case = T),]$mgi %>% sort()
+
+
+
+geneSet$Ribosome_KEGG = mfgsea_sets$KEGG_RIBOSOME
+
+geneSet$IFNG_response = mfgsea_sets$HALLMARK_INTERFERON_GAMMA_RESPONSE
+
+
+geneSet$ETC.Hallmark = mfgsea_sets$HALLMARK_OXIDATIVE_PHOSPHORYLATION
+```
+
+
+
+
+
+#==========BOC=============
+#Initialization
+scBOC.CD45.Initiation.230712.r
+```{r}
+library(Seurat)
+library(SeuratWrappers)
+library(harmony)
+library(tidyverse)
+options(future.globals.maxSize = 100000 * 1024^2)
+
+Clustering1 <- function(tmp,dim=30,res=0.3,spread =1, dist = 0.5,group = "ID" ){
+      DefaultAssay(tmp) = "RNA"
+      tmp <- NormalizeData(tmp) %>% FindVariableFeatures() %>% ScaleData() %>% RunPCA(verbose = FALSE)
+      tmp <- RunHarmony(tmp, group.by.vars = group)
+      tmp <- RunUMAP(tmp, reduction = "harmony", dims = 1:dim, min.dist = dist, spread = spread )
+      tmp <- FindNeighbors(tmp, reduction = "harmony", dims = 1:dim) %>% FindClusters(resolution = res)
+      return(tmp)
+}
+
+
+Batch.scRNA = c("scBRCA1","scBRCA3","scBRCA4","scBRCA5","scBRCA6", 
+                paste0("scOVCA",1:5),
+                paste0("scCRC",1:5))
+Batch.original = c(paste0("BRCA",c(10,12,17,20,22)),
+                   paste0("HGSOC",c(4,5,"5CMT",6,16)),
+                   paste0("CRC",c(1,5,7,8,9)) )
+ID = paste0(Batch.scRNA,"_CD45")
+Condition = rep(c("CD45"),15)
+Cancer = c(rep("BRCA",5),rep("OVCA",5), rep("CRC",5) )
+Histo = c("Luminal","Luminal","TNBC","TNBC","TNBC",
+          "HGSOC","HGSOC","HGSOC","HGSOC","HGSOC",
+          "CRC","CRC","CRC","CRC","CRC")
+
+CellRangerDir = paste0("//home/siwakorn/Human/Counts/",ID, "/filtered_feature_bc_matrix")
+
+RNA = list()
+for(i in 1:length(CellRangerDir)){
+      tmp = Read10X(data.dir = CellRangerDir[i]  )
+      RNA[[i]] <- CreateSeuratObject(counts = tmp, min.cells = 3, min.features = 0)
+      RNA[[i]][["percent.mt"]] <- PercentageFeatureSet(RNA[[i]], pattern = "^MT-")
+      RNA[[i]]$CB.original = colnames(RNA[[i]])
+      RNA[[i]]$Cancer = as.character(Cancer[i])
+      RNA[[i]]$Histo = as.character(Histo[i])
+      RNA[[i]]$Batch.original <- as.character(Batch.original[i])
+      RNA[[i]]$Batch.scRNA <- as.character(Batch.scRNA[i])
+      RNA[[i]]$Condition <- as.character(Condition[i])
+      RNA[[i]]$ID = paste0(as.character(RNA[[i]]$Batch.scRNA),"_",as.character(RNA[[i]]$Condition))
+      RNA[[i]]$CB.new = paste0(RNA[[i]]$ID,":", colnames(RNA[[i]]) )
+      RNA[[i]]$CB.new = gsub("-1","x",RNA[[i]]$CB.new)
+      RNA[[i]] <- RenameCells(RNA[[i]], new.names = RNA[[i]]$CB.new )
+}
+
+print("part1")
+BOC = merge(x = RNA[[1]],
+            y = RNA[2:length(RNA)],
+            merge.data = TRUE)
+RNA = 0
+DefaultAssay(BOC) = "RNA"
+
+print("part2")
+BOC = NormalizeData(BOC) %>% FindVariableFeatures() %>% ScaleData() %>% RunPCA(verbose = FALSE)
+BOC = RunHarmony(BOC, group.by.vars = "ID")
+
+saveRDS(BOC, file = "//home/siwakorn/Human/RDS/BOC.CD45.230712.rds") 
+
+BOC = subset(BOC, percent.mt < 10)
+BOC = NormalizeData(BOC) %>% FindVariableFeatures() %>% ScaleData() %>% RunPCA(verbose = FALSE)
+BOC = RunHarmony(BOC, group.by.vars = "ID")
+BOC <- RunUMAP(BOC, reduction = "harmony", dims = 1:30, min.dist = 1, spread =1 )
+BOC <- FindNeighbors(BOC, reduction = "harmony", dims = 1:30) %>% FindClusters(resolution = 0.3)
+saveRDS(BOC, file = "//home/siwakorn/Human/RDS/BOC_preSubmitted.QC10.230712.rds")
+```
+
+
+#Classification
+```{r}
+BOC <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC_preSubmitted.QC10.230712.rds")
+BOC = RenameIdents(BOC, 
+                   '0' = "TNK",
+                   '3' = "TNK",
+                   '4' = "TNK",
+                   '6' = "TNK",
+                   '9' = "TNK",
+                   '14' = "TNK",
+                   '17' = "TNK",
+                   '18' = "TNK",
+                   '2' = "Myeloid",
+                   '8' = "Myeloid",
+                   '15' = "Myeloid",
+                   '16' = "Myeloid",
+                   '5' = "B_cell",
+                   '1' = "B_cell",
+                   '7' = "Dividing",
+                   '12' = "Dividing",
+                   '13' = "Dividing",
+                   '10' = "Minor",
+                   '11' = "Minor"
+                   )
+BOC$Identity.Lineage = Idents(BOC)
+
+
+#-----------------------------------------------------------------------------------------
+##TNK
+TNK = subset(BOC,idents = "TNK")
+TNK = Clustering1(TNK)
+TNK = RenameIdents(TNK,
+                   '5' = "NK",
+                   '6' = "NK",
+                   '0' = "T_CD8",
+                   '4' = "T_CD8",
+                   '7' = "T_CD8",
+                   '1' = "T_CD4",
+                   '2' = "T_CD4",
+                   '3' = "Treg",
+                   '8' = "LQ",
+                   '9' = "LQ")
+TNK$Identity.Celltype = Idents(TNK)
+
+NK = subset(TNK, idents = "NK")
+NK = Clustering1(NK)
+NK = RenameIdents(NK,
+                   '0' = "T_CD8",
+                   '1' = "NK",
+                   '2' = "T_CD8",
+                   '3' = "NK",
+                   '4' = "NK",
+                   '5' = "NK",
+                   '6' = "NK",
+                   '7' = "NK",
+                   '8' = "NK",
+                   '9' = "NK")
+NK$Identity.Celltype = Idents(NK)
+
+CD8 = subset(TNK, idents = "T_CD8")
+CD8 = Clustering1(CD8)
+CD8 = RenameIdents(CD8,
+                   '0' = "T_CD8",
+                   '1' = "T_CD8",
+                   '3' = "T_CD8",
+                   '6' = "T_CD8")
+CD8$Identity.Celltype = Idents(CD8)
+C2 = subset(CD8, idents = 2)
+C2 = Clustering1(C2)
+C2 = RenameIdents(C2,
+                  '0' = "T_CD8",
+                  '2' = "T_CD8",
+                  '1' = "T_CD4",
+                  '4' = "T_CD4",
+                  '3' = "LQ",
+                  '5' = "LQ")
+C2$Identity.Celltype = Idents(C2)
+
+C4 = subset(CD8, idents = 4)
+C4 = Clustering1(C4,res =1)
+C4 = RenameIdents(C4,
+                   '0' = "T_CD4",
+                   '1' = "T_CD8",
+                   '2' = "T_CD8",
+                   '3' = "T_CD4",
+                   '4' = "T_CD4",
+                   '5' = "T_CD8",
+                   '6' = "T_CD8",
+                   '7' = "T_CD8",
+                   '8' = "T_CD8",
+                   '9' = "T_CD4",
+                   '10' = "T_CD4"
+                  )
+C4$Identity.Celltype = Idents(C4)
+
+C5 = subset(CD8, idents = 5)
+C5 = Clustering1(C5)
+C5 = RenameIdents(C5, 
+                  '0' = "T_CD4",
+                  '1' = "T_CD8",
+                  '2' = "T_CD4",
+                  '3' = "LQ",
+                  '4' = "T_CD4")
+C5$Identity.Celltype = Idents(C5)
+
+tmp1 = CD8[[]] %>% dplyr::select(Identity.Celltype) %>% filter(Identity.Celltype == "T_CD8")
+tmp2 = C2[[]] %>% dplyr::select(Identity.Celltype) 
+tmp3 = C4[[]] %>% dplyr::select(Identity.Celltype) 
+tmp4 = C5[[]] %>% dplyr::select(Identity.Celltype) 
+
+tmp = rbind(tmp1,tmp2,tmp3,tmp4)
+tmp1 = tmp$Identity.Celltype
+names(tmp1) = rownames(tmp)
+CD8 = AddMetaData(CD8,tmp1, "Identity.Celltype")
+
+CD4 = subset(TNK, idents = "T_CD4")
+CD4 = Clustering1(CD4)
+CD4 = RenameIdents(CD4,
+                   '0' = "T_CD4",
+                   '1' = "T_CD4",
+                   '2' = "T_CD4",
+                   '3' = "T_CD4",
+                   '4' = "T_CD8",
+                   '5' = "T_CD4",
+                   '6' = "T_CD8"
+                   )
+CD4$Identity.Celltype = Idents(CD4)
+
+Treg= subset(TNK, idents = "Treg")
+Treg = Clustering1(Treg)
+Treg = RenameIdents(Treg,
+                    '3' = "T_CD8",
+                    '0' = "T_CD4_FOXP3",
+                    '1' = "T_CD4_FOXP3",
+                    '2' = "T_CD4_FOXP3",
+                    '4' = "T_CD4_FOXP3",
+                    '5' = "T_CD4_FOXP3",
+                    '6' = "T_CD4_FOXP3")
+Treg$Identity.Celltype = Idents(Treg)
+
+
+tmp1 = TNK[[]] %>% dplyr::select(Identity.Celltype) %>% filter(Identity.Celltype == "LQ")
+tmp2 = NK[[]] %>% dplyr::select(Identity.Celltype) 
+tmp3 = CD8[[]] %>% dplyr::select(Identity.Celltype) 
+tmp4 = CD4[[]] %>% dplyr::select(Identity.Celltype) 
+tmp5 = Treg[[]] %>% dplyr::select(Identity.Celltype) 
+
+tmp = rbind(tmp1,tmp2,tmp3,tmp4,tmp5)
+tmp1 = tmp$Identity.Celltype
+names(tmp1) = rownames(tmp)
+TNK = AddMetaData(TNK,tmp1, "Identity.Celltype")
+Idents(TNK) = TNK$Identity.Celltype
+DimPlot(TNK)
+#-----------------------------------------------------------------------------------------
+##Myeloid
+M = subset(BOC, idents = "Myeloid")
+M = Clustering1(M)
+DimPlot(M,label = T)
+Idents(M) = M$seurat_clusters
+M = RenameIdents(M,
+                 '0' = "TIM",
+                 '2' = "TIM",
+                 '3' = "TIM",
+                 '6' = "TIM",
+                 '8' = "TIM",
+                 '11' = "TIM",
+                 '5' = "TIM_Dividing",
+                 '1' = "TAN-PMN",
+                 '4' = "cDC2",
+                 '10' = "cDC1",
+                 '9' = "mregDC",
+                 '7' = "pDC"
+                 )
+M$Identity.Celltype = Idents(M)
+TIM = subset(M, idents = "TIM")
+TIM = Clustering1(TIM)
+TIM = RenameIdents(TIM,
+                   '0' = "TIM_VCAN",
+                   '1' = "TIM_C1QA",
+                   '2' = "C2",
+                   '3' = "TIM_VCAN",
+                   '4' = "TIM_C1QA",
+                   '5' = "Minor",
+                   '6' = "Minor",
+                   '7' = "Minor",
+                   '8' = "Minor")
+TIM$Identity.Celltype = Idents(TIM)
+
+C2 = subset(TIM, idents = "C2")
+C2 = Clustering1(C2)
+C2 = RenameIdents(C2, 
+                  '1' = "TIM_VCAN",
+                  '2' = "TIM_C1QA",
+                  '3' = "LQ",
+                  '5' = "TIM_C1QA",
+                  '6' = "TIM_C1QA",
+                  '0' = "LQ",
+                  '4' = "LQ",
+                  '7' = "LQ")
+C2$Identity.Celltype = Idents(C2)
+
+C5 = subset(M,idents = "TIM_Dividing")
+C5 = Clustering1(C5)
+
+tmp1 = M[[]] %>% dplyr::select(Identity.Celltype) %>% filter(!Identity.Celltype == "TIM")
+tmp2 = TIM[[]]  %>% dplyr::select(Identity.Celltype) %>% filter(!Identity.Celltype == "C2")
+tmp3 = C2[[]]  %>% dplyr::select(Identity.Celltype)
+tmp = rbind(tmp1,tmp2,tmp3)
+tmp1 = tmp$Identity.Celltype
+names(tmp1) = rownames(tmp)
+M = AddMetaData(M, tmp1, "Identity.Celltype")
+#-----------------------------------------------------------------------------------------
+##Div
+Div = subset(BOC, idents = "Dividing")
+Div = Clustering1(Div)
+Div$seurat_clusters = Idents(Div)
+Div = RenameIdents(Div,
+                   '0' = "T_CD8_Dividing",
+                   '1' = "T_CD4_Dividing",
+                   '2' = "T_CD4_FOXP3_Dividing",
+                   '5' = "T_GD_Dividing",
+                   '2' = "B_cell_Dividing",
+                   '3' = "Plasma_cell_Dividing",
+                   '7' = "Plasma_cell_Dividing",
+                   '6' = "LQ")
+
+Idents(Div) = Div$seurat_clusters
+Div = RenameIdents(Div,
+                   '0' = "T_CD8",
+                   '1' = "T_CD4",
+                   '4' = "T_CD4_FOXP3",
+                   '5' = "NK",
+                   '2' = "B_cell",
+                   '3' = "B_cell",
+                   '7' = "B_cell",
+                   '6' = "LQ")
+Div$Identity.Celltype = Idents(Div)
+DimPlot(Div,label=T)
+
+
+#-----------------------------------------------------------------------------------------
+#Embed
+BOC$Identity.Celltype = BOC$Identity.Lineage
+tmp1 = BOC[[]] %>% dplyr::select(Identity.Celltype) %>% filter(Identity.Celltype %in% c("B_cell","Minor") )
+tmp2 = TNK[[]] %>% dplyr::select(Identity.Celltype) 
+tmp3 = M[[]] %>% dplyr::select(Identity.Celltype) 
+tmp4 = Div[[]] %>% dplyr::select(Identity.Celltype) 
+tmp = rbind(tmp1,tmp2,tmp3,tmp4)
+tmp1 = tmp$Identity.Celltype
+names(tmp1)= rownames(tmp)
+
+BOC = AddMetaData(BOC, tmp1, "Identity.Celltype")
+write.csv(sort(unique(BOC$Identity.Celltype)), "BOC.Identity.Celltype.230406.csv")
+tmp =read.csv("BOC.Identity.Celltype.230406.modified.csv")$x
+BOC$Identity.Celltype = factor(BOC$Identity.Celltype, levels= tmp)
+BOC$Identity.Celltype1 = BOC$Identity.Celltype
+Idents(BOC) = BOC$Identity.Celltype
+
+#NK
+NK = subset(BOC, idents = "NK")
+NK = Clustering1(NK)
+NK = RenameIdents(NK,
+                  '0' = "NK",
+                   '1' = "NK",
+                   '2' = "NK",
+                   '3' = "NK",
+                   '4' = "NK",
+                   '5' = "NK",
+                   '6' = "NK",
+                   '7' = "NK",
+                   '9' = "NK_Dividing",
+                   '10' = "NK",
+                  '8' = "LQ")
+NK$Identity.Celltype2 = Idents(NK)
+NK$Identity.Subtype1 = Idents(NK)
+NK$Identity.Subtype2 = Idents(NK)
+DimPlot(NK,label=T)
+
+#-----------------------------------------------------------------------------------------
+#CD8
+CD8 = subset(BOC, idents = "T_CD8")
+CD8 = Clustering1(CD8)
+Idents(CD8) = CD8$seurat_clusters
+CD8 = RenameIdents(CD8, 
+                   '0' = "T_CD8",
+                   '1' = "T_CD8",
+                   '2' = "T_CD8",
+                   '3' = "T_CD8",
+                   '4' = "T_CD8_Dividing",
+                   '5' = "T_CD8",
+                   '6' = "T_CD8",
+                   '7' = "T_CD8",
+                   '8' = "T_CD8",
+                   '9' = "T_CD8",
+                   '10' = "T_CD8" #KLRD1
+                   )
+CD8$Identity.Celltype2 = Idents(CD8)
+Idents(CD8) = CD8$seurat_clusters
+CD8 = RenameIdents(CD8, 
+                    '3' = "T_CD8_TCF7",
+                   '0' = "T_CD8_GZMK",
+                   '2' = "T_CD8_GZMK",
+                   '1' = "T_CD8_HAVCR2",
+                   '5' = "T_CD8_GNLY",
+                   '10' = "T_CD8_GNLY", #KLRD1
+                   '6' = "T_CD8_ISG",
+                   '8' = "T_CD8_RORA",
+                   '9' = "T_CD8_TNFRSF4",
+                   '7' = "T_CD8_FOXP3",
+                   '4' = "T_CD8_Dividing"
+                   )
+CD8$Identity.Subtype1 = Idents(CD8)
+Idents(CD8) = CD8$seurat_clusters
+CD8 = RenameIdents(CD8, 
+                    '3' = "T_CD8_TCF7",
+                   '0' = "T_CD8_GZMK_s1",
+                   '2' = "T_CD8_GZMK_s2",
+                   '1' = "T_CD8_HAVCR2",
+                   '5' = "T_CD8_GNLY_s1",
+                   '10' = "T_CD8_GNLY_s2", #KLRD1
+                   '6' = "T_CD8_ISG",
+                   '8' = "T_CD8_RORA",
+                   '9' = "T_CD8_TNFRSF4",
+                   '7' = "T_CD8_FOXP3",
+                   '4' = "T_CD8_Dividing"
+                   )
+CD8$Identity.Subtype2 = Idents(CD8)
+DimPlot(CD8, label= T)
+#-----------------------------------------------------------------------------------------
+#CD4
+CD4 = subset(BOC, idents = "T_CD4")
+CD4 = Clustering1(CD4)
+
+Idents(CD4) = CD4$seurat_clusters
+CD4 = RenameIdents(CD4,
+                   '0' = "T_CD4",
+                   '1' = "T_CD4",
+                   '2' = "T_CD4",
+                   '3' = "T_CD4",
+                   '4' = "T_CD4",
+                   '5' = "T_CD4",
+                   '8' = "T_CD4",
+                   '7' = "T_CD4", #ISG
+                   '6' = "T_CD4_Dividing",
+                   '9' = "LQ")
+CD4$Identity.Celltype2 = Idents(CD4)
+
+Idents(CD4) = CD4$seurat_clusters
+CD4 = RenameIdents(CD4,
+                   '0' = "T_CD4_KLF2",
+                   '1' = "T_CD4_TOX",
+                   '2' = "T_CD4_KLF2",
+                   '3' = "T_CD4_TOX",
+                   '4' = "T_CD4_KLF2",
+                   '5' = "T_CD4_TOX",
+                   '8' = "T_CD4_TOX",
+                   '7' = "T_CD4_ISG", #ISG
+                   '6' = "T_CD4_Dividing",
+                   '9' = "LQ")
+CD4$Identity.Subtype1 = Idents(CD4)
+
+Idents(CD4) = CD4$seurat_clusters
+CD4 = RenameIdents(CD4,
+                   '0' = "T_CD4_KLF2_s1",
+                   '2' = "T_CD4_KLF2_s2",
+                   '4' = "T_CD4_KLF2_s3",
+                   '1' = "T_CD4_TOX_s1",
+                   '3' = "T_CD4_TOX_s2",
+                   '5' = "T_CD4_TOX_s3",
+                   '8' = "T_CD4_TOX_s4",
+                   '7' = "T_CD4_ISG", #ISG
+                   '6' = "T_CD4_Dividing",
+                   '9' = "LQ")
+CD4$Identity.Subtype2 = Idents(CD4)
+#-----------------------------------------------------------------------------------------
+#Treg
+Treg = subset(BOC,idents = "T_CD4_FOXP3")
+Treg = Clustering1(Treg)
+Idents(Treg)= Treg$seurat_clusters
+Treg = RenameIdents(Treg, 
+                   '0' = "T_CD4_FOXP3",
+                   '1' = "T_CD4_FOXP3",
+                   '2' = "T_CD4_FOXP3",
+                   '3' = "T_CD4_FOXP3",
+                   '4' = "T_CD4_FOXP3",
+                   '5' = "T_CD4_FOXP3",
+                   '7' = "T_CD4_FOXP3",
+                   '6' = "T_CD4_FOXP3_Dividing")
+Treg$Identity.Celltype2 = Idents(Treg)
+Idents(Treg)= Treg$seurat_clusters
+Treg = RenameIdents(Treg, 
+                   '0' = "T_CD4_FOXP3_KLF2",
+                   '1' = "T_CD4_FOXP3_TNFRSF9",
+                   '2' = "T_CD4_FOXP3_TNFRSF9",
+                   '3' = "T_CD4_FOXP3_TNFRSF9",
+                   '4' = "T_CD4_FOXP3_TNFRSF9",
+                   '5' = "T_CD4_FOXP3_TNFRSF9",
+                   '7' = "T_CD4_FOXP3_TNFRSF9",
+                   '6' = "T_CD4_FOXP3_Dividing")
+Treg$Identity.Subtype1 = Idents(Treg)
+Idents(Treg)= Treg$seurat_clusters
+Treg = RenameIdents(Treg, 
+                   '0' = "T_CD4_FOXP3_KLF2",
+                   '1' = "T_CD4_FOXP3_TNFRSF9_s1",
+                   '2' = "T_CD4_FOXP3_TNFRSF9_s2",
+                   '3' = "T_CD4_FOXP3_TNFRSF9_s3",
+                   '4' = "T_CD4_FOXP3_TNFRSF9_s4",
+                   '5' = "T_CD4_FOXP3_TNFRSF9_s5",
+                   '7' = "T_CD4_FOXP3_TNFRSF9_s6",
+                   '6' = "T_CD4_FOXP3_Dividing")
+Treg$Identity.Subtype2 = Idents(Treg)
+DimPlot(Treg,label=T)
+#-----------------------------------------------------------------------------------------
+#TIM
+TIM = subset(BOC, idents = c("TIM_VCAN","TIM_C1QA","TIM_Dividing","TAN-PMN"))
+TIM = Clustering1(TIM,res = 1)
+DimPlot(TIM,label=T)
+Idents(TIM) = TIM$seurat_clusters
+TIM = RenameIdents(TIM,
+                   '0' = "TAN-PMN",
+                   '6' = "TAN-PMN",
+                   '15' = "TAN-PMN",
+                   '10' = "TAN-PMN",
+                   '1' = "TIM",
+                   '7' = "TIM",
+                   '9' = "TIM",
+                   '18' = "TIM",
+                   '13' = "TIM",
+                   '14' = "TIM",
+                   '8' = "TIM_Dividing",
+                   '17' = "TIM_Dividing",
+                   '2' = "TIM",
+                   '3' = "TIM",
+                   '4' = "TIM",
+                   '11' = "TIM",
+                   '12' = "TIM",
+                   '16' = "TIM",
+                   '5' = "LQ"
+                   )
+TIM$Identity.Celltype2 = Idents(TIM)
+DimPlot(TIM)
+Idents(TIM) = TIM$seurat_clusters
+TIM = RenameIdents(TIM,
+                   '0' = "TAN-PMN",
+                   '6' = "TAN-PMN",
+                   '15' = "TAN-PMN",
+                   '10' = "TAN-PMN",
+                   '1' = "TIM_C1QA",
+                   '7' = "TIM_C1QA",
+                   '9' = "TIM_C1QA",
+                   '18' = "TIM_C1QA",
+                   '13' = "TIM_C1QA",
+                   '14' = "TIM_C1QA",
+                   '8' = "TIM_C1QA_Dividing",
+                   '17' = "TIM_C1QA_Dividing",
+                   '2' = "TIM_VCAN",
+                   '3' = "TIM_VCAN",
+                   '4' = "TIM_VCAN",
+                   '11' = "TIM_VCAN",
+                   '12' = "TIM_VCAN",
+                   '16' = "TIM_VCAN",
+                   '5' = "LQ"
+                   )
+TIM$Identity.Subtype1 = Idents(TIM)
+Idents(TIM) = TIM$seurat_clusters
+TIM = RenameIdents(TIM,
+                   '0' = "TAN-PMN_s1",
+                   '6' = "TAN-PMN_s2",
+                   '15' = "TAN-PMN_s3",
+                   '10' = "TAN-PMN_s4",
+                   '1' = "TIM_C1QA_s1",
+                   '7' = "TIM_C1QA_s2",
+                   '9' = "TIM_C1QA_s3",
+                   '18' = "TIM_C1QA_s4",
+                   '13' = "TIM_C1QA_s5",
+                   '14' = "TIM_C1QA_s6",
+                   '8' = "TIM_C1QA_Dividing_s1",
+                   '17' = "TIM_C1QA_Dividing_s2",
+                   '2' = "TIM_VCAN_s1",
+                   '3' = "TIM_VCAN_s2",
+                   '4' = "TIM_VCAN_s3",
+                   '11' = "TIM_VCAN_s4",
+                   '12' = "TIM_VCAN_s5",
+                   '16' = "TIM_VCAN_s6",
+                   '5' = "LQ"
+                   )
+TIM$Identity.Subtype2 = Idents(TIM)
+
+#-----------------------------------------------------------------------------------------
+#B Cell
+B = subset(BOC, idents = "B_cell")
+B = Clustering1(B)
+Idents(B) = B$seurat_clusters
+B = RenameIdents(B,
+                 '2' = "B_cell",
+                 '4' = "B_cell",
+                 '0' = "Plasma_cell",
+                 '1' = "Plasma_cell",
+                 '3' = "Plasma_cell",
+                 '5' = "Plasma_cell",
+                 '7' = "Plasma_cell",
+                 '6' = "B-Plasma_cell_Dividing")
+B$Identity.Celltype2 = Idents(B)
+B$Identity.Subtype1 = Idents(B)
+Idents(B) = B$seurat_clusters
+B = RenameIdents(B,
+                 '2' = "B_cell_s1",
+                 '4' = "B_cell_s2",
+                 '0' = "Plasma_cell_s1",
+                 '1' = "Plasma_cell_s2",
+                 '3' = "Plasma_cell_s3",
+                 '5' = "Plasma_cell_s4",
+                 '7' = "Plasma_cell_s5",
+                 '6' = "B-Plasma_cell_Dividing")
+B$Identity.Subtype2 = Idents(B)
+
+#Embed
+Idents(BOC)=BOC$Identity.Celltype
+DimPlot(BOC)
+tmp1 = BOC[[]] %>% dplyr::select(Identity.Celltype) %>% filter(Identity.Celltype %in% c("cDC1","cDC2","mregDC","pDC","Minor","LQ"))
+tmp1$Identity.Celltype2 = tmp1$Identity.Celltype
+tmp1$Identity.Subtype1 = tmp1$Identity.Celltype
+tmp1$Identity.Subtype2 = tmp1$Identity.Celltype
+tmp2 = NK[[]]  %>% dplyr::select(Identity.Celltype,Identity.Celltype2,Identity.Subtype1,Identity.Subtype2)
+tmp3 = CD8[[]] %>% dplyr::select(Identity.Celltype,Identity.Celltype2,Identity.Subtype1,Identity.Subtype2)
+tmp4 = CD4[[]] %>% dplyr::select(Identity.Celltype,Identity.Celltype2,Identity.Subtype1,Identity.Subtype2)
+tmp5 = Treg[[]] %>% dplyr::select(Identity.Celltype,Identity.Celltype2,Identity.Subtype1,Identity.Subtype2)
+tmp6 = TIM[[]] %>% dplyr::select(Identity.Celltype,Identity.Celltype2,Identity.Subtype1,Identity.Subtype2)
+tmp7 = B[[]] %>% dplyr::select(Identity.Celltype,Identity.Celltype2,Identity.Subtype1,Identity.Subtype2)
+tmp = rbind(tmp1,tmp2,tmp3,tmp4,tmp5,tmp6,tmp7)
+
+tmp1 = tmp$Identity.Celltype2
+names(tmp1) = rownames(tmp)
+BOC = AddMetaData(BOC,tmp1,"Identity.Celltype2")
+
+tmp1 = tmp$Identity.Subtype1
+names(tmp1) = rownames(tmp)
+BOC = AddMetaData(BOC,tmp1,"Identity.Subtype1")
+
+tmp1 = tmp$Identity.Subtype2
+names(tmp1) = rownames(tmp)
+BOC = AddMetaData(BOC,tmp1,"Identity.Subtype2")
+
+write.csv(sort(unique(BOC$Identity.Celltype2)),"BOC.CD45.Identity.Celltype2.230712.csv")
+write.csv(sort(unique(BOC$Identity.Subtype1)),"BOC.CD45.Identity.Subtype1.230712.csv")
+write.csv(sort(unique(BOC$Identity.Subtype2)),"BOC.CD45.Identity.Subtype2.230712.csv")
+
+tmp = read.csv("BOC.CD45.Identity.Celltype2.230712.modified.csv")$x
+BOC$Identity.Celltype2 = factor(BOC$Identity.Celltype2, levels = tmp)
+
+tmp = read.csv("BOC.CD45.Identity.Subtype1.230712.modified.csv")$x
+BOC$Identity.Subtype1 = factor(BOC$Identity.Subtype1, levels = tmp)
+
+tmp = read.csv("BOC.CD45.Identity.Subtype2.230712.modified.csv")$x
+BOC$Identity.Subtype2 = factor(BOC$Identity.Subtype2, levels = tmp)
+
+Idents(BOC) = BOC$Identity.Celltype2
+BOC <- RenameIdents(BOC,
+                    'NK' = "NK",
+                    'NK_Dividing' = "NK",
+                    'T_CD8' = "CD8 T cell",
+                    'T_CD8_Dividing' = "CD8 T cell",
+                    'T_CD4' = "CD4 T cell",
+                    'T_CD4_Dividing' = "CD4 T cell",
+                    'T_CD4_FOXP3' = "regulatory T cell",
+                    'T_CD4_FOXP3_Dividing' = "regulatory T cell",
+                    'TAN-PMN' = "TAN-PMN",
+                    'TIM' = "TIM",
+                    'TIM_Dividing' = "TIM",
+                    'cDC1' = "DC",
+                    'cDC2' = "DC",
+                    'mregDC' = "DC",
+                    'pDC' = "DC",
+                    'B_cell' = "B cell",
+                    'B-Plasma_cell_Dividing' = "B cell",
+                    'Plasma_cell' = "Plasma cell")
+BOC$Identity.Celltype3 = Idents(BOC)
+
+Idents(BOC) = BOC$Identity.Celltype2
+BOC <- RenameIdents(BOC,
+                    'NK' = "NK",
+                    'NK_Dividing' = "NK",
+                    'T_CD8' = "T_CD8",
+                    'T_CD8_Dividing' = "T_CD8",
+                    'T_CD4' = "T_CD4",
+                    'T_CD4_Dividing' = "T_CD4",
+                    'T_CD4_FOXP3' = "T_CD4_FOXP3",
+                    'T_CD4_FOXP3_Dividing' = "T_CD4_FOXP3",
+                    'TAN-PMN' = "TIM",
+                    'TIM' = "TIM",
+                    'TIM_Dividing' = "TIM",
+                    'cDC1' = "DC",
+                    'cDC2' = "DC",
+                    'mregDC' = "DC",
+                    'pDC' = "DC",
+                    'B_cell' = "B cell",
+                    'B-Plasma_cell_Dividing' = "B cell",
+                    'Plasma_cell' = "Plasma cell")
+BOC$Identity.Celltype = Idents(BOC)
+
+Idents(BOC) = BOC$Identity.Celltype2
+BOC <- RenameIdents(BOC,
+                    'NK' = "NK",
+                    'NK_Dividing' = "NK",
+                    'T_CD8' = "CD8 T cell",
+                    'T_CD8_Dividing' = "CD8 T cell",
+                    'T_CD4' = "CD4 T cell",
+                    'T_CD4_Dividing' = "CD4 T cell",
+                    'T_CD4_FOXP3' = "regulatory T cell",
+                    'T_CD4_FOXP3_Dividing' = "regulatory T cell",
+                    'TAN-PMN' = "TIM",
+                    'TIM' = "TIM",
+                    'TIM_Dividing' = "TIM",
+                    'cDC1' = "DC",
+                    'cDC2' = "DC",
+                    'mregDC' = "DC",
+                    'pDC' = "DC",
+                    'B_cell' = "B cell",
+                    'B-Plasma_cell_Dividing' = "B cell",
+                    'Plasma_cell' = "Plasma cell")
+BOC$Identity.CelltypeR = Idents(BOC)
+
+Idents(BOC) = BOC$Identity.Celltype2
+BOC <- RenameIdents(BOC,
+                    'NK' = "NK",
+                    'T_CD8' = "T_CD8",
+                    'T_CD4' = "T_CD4",
+                    'T_CD4_FOXP3' = "T_CD4_FOXP3",
+                    'TAN-PMN' = "TIM",
+                    'TIM' = "TIM",
+                    'cDC1' = "DC",
+                    'cDC2' = "DC",
+                    'mregDC' = "DC",
+                    'pDC' = "DC",
+                    'B_cell' = "B cell",
+                    'Plasma_cell' = "Plasma cell",
+                    'NK_Dividing' = "Dividing",
+                    'T_CD8_Dividing' = "Dividing",
+                    'T_CD4_Dividing' = "Dividing",
+                    'T_CD4_FOXP3_Dividing' = "Dividing",
+                    'TIM_Dividing' = "Dividing",
+                    'B-Plasma_cell_Dividing' = "Dividing")
+BOC$Identity.Celltype4 = Idents(BOC)
+
+Idents(BOC) = BOC$Identity.Celltype2
+BOC <- RenameIdents(BOC,
+                    'NK' = "NK",
+                    'T_CD8' = "CD8 T cell",
+                    'T_CD4' = "CD4 T cell",
+                    'T_CD4_FOXP3' = "regulatory T cell",
+                    'TAN-PMN' = "TIM",
+                    'TIM' = "TIM",
+                    'cDC1' = "DC",
+                    'cDC2' = "DC",
+                    'mregDC' = "DC",
+                    'pDC' = "DC",
+                    'B_cell' = "B cell",
+                    'Plasma_cell' = "Plasma cell",
+                    'NK_Dividing' = "Dividing",
+                    'T_CD8_Dividing' = "Dividing",
+                    'T_CD4_Dividing' = "Dividing",
+                    'T_CD4_FOXP3_Dividing' = "Dividing",
+                    'TIM_Dividing' = "Dividing",
+                    'B-Plasma_cell_Dividing' = "Dividing"
+                    )
+BOC$Identity.Celltype4R = Idents(BOC)
+DimPlot(BOC)
+saveRDS(BOC, "BOC_preSubmitted.230713.rds")
+```
+
+#Exclude Minor-LQ
+```{r}
+tmp = levels(Idents(BOC)) %>% setdiff(c("Minor","LQ"))
+BOC = subset(BOC, idents = tmp)
+BOC = RunUMAP(BOC, reduction = "harmony", dims = 1:30, min.dist = 1, spread = 1 )
+saveRDS(BOC, "BOC_preSubmitted.QC_Cluster.230713.rds")
+```
+#PTGER2 Group
+```{r}
+BOC <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC.PTGER4Group.230713.rds")
+Idents(BOC) = BOC$Identity.Celltype4
+DimPlot(BOC)
+tmp = PTGER2.Group(BOC,Identity = "Identity.Celltype4",Batch = "Batch.scRNA" )
+BOC = AddMetaData(BOC,tmp,"PTGER2.Group.Celltype4")
+table(BOC$Identity.Celltype4, BOC$PTGER2.Group.Celltype4)
+BOC$PTGER2.Group.Celltype4 = factor(BOC$PTGER2.Group.Celltype4, levels = c("Negative","Positive"))
+
+```
+
+#PTGER4 Grouping
+```{r}
+tmp = PTGER4.Group(BOC,Identity = "Identity.Celltype",Batch = "Batch.scRNA" )
+BOC = AddMetaData(BOC,tmp,"PTGER4.Group.Celltype")
+BOC$PTGER4.Group.Celltype = factor(BOC$PTGER4.Group.Celltype, levels = c("Undetected","Low","Intermediate","High"))
+
+tmp = PTGER4.Group(BOC,Identity = "Identity.Celltype2",Batch = "Batch.scRNA" )
+BOC = AddMetaData(BOC,tmp,"PTGER4.Group.Celltype2")
+BOC$PTGER4.Group.Celltype2 = factor(BOC$PTGER4.Group.Celltype2, levels = c("Undetected","Low","Intermediate","High"))
+
+
+tmp = PTGER4.Group(BOC,Identity = "Identity.Celltype4",Batch = "Batch.scRNA" )
+BOC = AddMetaData(BOC,tmp,"PTGER4.Group.Celltype4")
+BOC$PTGER4.Group.Celltype4 = factor(BOC$PTGER4.Group.Celltype4, levels = c("Undetected","Low","Intermediate","High"))
+
+tmp = PTGER4.Group(BOC,Identity = "Identity.Subtype1",Batch = "Batch.scRNA" )
+BOC = AddMetaData(BOC,tmp,"PTGER4.Group.Subtype1")
+BOC$PTGER4.Group.Subtype1 = factor(BOC$PTGER4.Group.Subtype1, levels = c("Undetected","Low","Intermediate","High"))
+saveRDS(BOC,"BOC.PTGER4Group.230713.rds")
+#BOC = readRDS("BOC.PTGER4Group.230713.rds")
+```
+
+
+
+#DE (Bulk)
+```{r}
+#DE_bulk.Celltype.r
+library(Seurat)
+library(harmony)
+library(tidyverse)
+options(future.globals.maxSize = 100000 * 1024^2)
+
+BOC = readRDS("//home/siwakorn/Human/RDS/BOC.PTGER4Group.230713.rds")
+
+DE3 = list()
+Idents(BOC) = BOC$Identity.Celltype
+for(i in levels(BOC$Identity.Celltype)){
+      tryCatch({
+            print(i)
+            DE = list()
+            tmp = subset(BOC,idents = i )
+            Idents(tmp) = tmp$PTGER4.Group.Celltype
+            DE[["High-Low"]] = FindMarkers(tmp, ident.1 = "High", ident.2 = "Low", logfc.threshold = 0.01, min.pct = 0.01)
+            DE[["High-Intermediate"]] = FindMarkers(tmp, ident.1 = "High", ident.2 = "Intermediate", logfc.threshold = 0.01, min.pct = 0.01)
+            DE[["High-Undetected"]] = FindMarkers(tmp, ident.1 = "High", ident.2 = "Undetected", logfc.threshold = 0.01, min.pct = 0.01)
+            tmp = RenameIdents(tmp, 'High' = "Positive",'Intermediate' = "Positive", 'Low' = "Positive",'Undetected' = "Negative")
+            DE[["Positive-Negative"]] = FindMarkers(tmp, ident.1 = "Positive",ident.2 = "Negative", logfc.threshold = 0.01, min.pct = 0.01)
+            DE3[[i]] = DE
+      },error = function(e){print(e)})
+}
+saveRDS(DE3,"//home/siwakorn/Human/RDS/BOC.DE_Bulk.Celltype.230713.rds")
+
+
+#DE_bulk.Celltype2.r
+library(Seurat)
+library(harmony)
+library(tidyverse)
+options(future.globals.maxSize = 100000 * 1024^2)
+
+BOC = readRDS("//home/siwakorn/Human/RDS/BOC.PTGER4Group.230713.rds")
+
+DE3 = list()
+Idents(BOC) = BOC$Identity.Celltype2
+for(i in levels(BOC$Identity.Celltype2)){
+      tryCatch({
+            print(i)
+            DE = list()
+            tmp = subset(BOC,idents = i )
+            Idents(tmp) = tmp$PTGER4.Group.Celltype2
+            DE[["High-Low"]] = FindMarkers(tmp, ident.1 = "High", ident.2 = "Low", logfc.threshold = 0.01, min.pct = 0.01)
+            DE[["High-Intermediate"]] = FindMarkers(tmp, ident.1 = "High", ident.2 = "Intermediate", logfc.threshold = 0.01, min.pct = 0.01)
+            DE[["High-Undetected"]] = FindMarkers(tmp, ident.1 = "High", ident.2 = "Undetected", logfc.threshold = 0.01, min.pct = 0.01)
+            tmp = RenameIdents(tmp, 'High' = "Positive",'Intermediate' = "Positive", 'Low' = "Positive",'Undetected' = "Negative")
+            DE[["Positive-Negative"]] = FindMarkers(tmp, ident.1 = "Positive",ident.2 = "Negative", logfc.threshold = 0.01, min.pct = 0.01)
+            DE3[[i]] = DE
+      },error = function(e){print(e)})
+}
+saveRDS(DE3,"//home/siwakorn/Human/RDS/BOC.DE_Bulk.Celltype2.230713.rds")
+
+#DE_bulk.Celltype4.r
+library(Seurat)
+library(harmony)
+library(tidyverse)
+options(future.globals.maxSize = 100000 * 1024^2)
+
+BOC = readRDS("//home/siwakorn/Human/RDS/BOC.PTGER4Group.230713.rds")
+
+DE3 = list()
+Idents(BOC) = BOC$Identity.Celltype4
+for(i in levels(BOC$Identity.Celltype4)){
+      tryCatch({
+            print(i)
+            DE = list()
+            tmp = subset(BOC,idents = i )
+            Idents(tmp) = tmp$PTGER4.Group.Celltype4
+            DE[["High-Low"]] = FindMarkers(tmp, ident.1 = "High", ident.2 = "Low", logfc.threshold = 0.01, min.pct = 0.01)
+            DE[["High-Intermediate"]] = FindMarkers(tmp, ident.1 = "High", ident.2 = "Intermediate", logfc.threshold = 0.01, min.pct = 0.01)
+            DE[["High-Undetected"]] = FindMarkers(tmp, ident.1 = "High", ident.2 = "Undetected", logfc.threshold = 0.01, min.pct = 0.01)
+            tmp = RenameIdents(tmp, 'High' = "Positive",'Intermediate' = "Positive", 'Low' = "Positive",'Undetected' = "Negative")
+            DE[["Positive-Negative"]] = FindMarkers(tmp, ident.1 = "Positive",ident.2 = "Negative", logfc.threshold = 0.01, min.pct = 0.01)
+            DE3[[i]] = DE
+      },error = function(e){print(e)})
+}
+saveRDS(DE3,"//home/siwakorn/Human/RDS/BOC.DE_Bulk.Celltype4.230713.rds")
+#DE_bulk.Subtype1.r
+library(Seurat)
+library(harmony)
+library(tidyverse)
+options(future.globals.maxSize = 100000 * 1024^2)
+
+BOC = readRDS("//home/siwakorn/Human/RDS/BOC.PTGER4Group.230713.rds")
+
+DE3 = list()
+Idents(BOC) = BOC$Identity.Subtype1
+for(i in levels(BOC$Identity.Subtype1)){
+      tryCatch({
+            print(i)
+            DE = list()
+            tmp = subset(BOC,idents = i )
+            Idents(tmp) = tmp$PTGER4.Group.Subtype1
+            DE[["High-Low"]] = FindMarkers(tmp, ident.1 = "High", ident.2 = "Low", logfc.threshold = 0.01, min.pct = 0.01)
+            DE[["High-Intermediate"]] = FindMarkers(tmp, ident.1 = "High", ident.2 = "Intermediate", logfc.threshold = 0.01, min.pct = 0.01)
+            DE[["High-Undetected"]] = FindMarkers(tmp, ident.1 = "High", ident.2 = "Undetected", logfc.threshold = 0.01, min.pct = 0.01)
+            tmp = RenameIdents(tmp, 'High' = "Positive",'Intermediate' = "Positive", 'Low' = "Positive",'Undetected' = "Negative")
+            DE[["Positive-Negative"]] = FindMarkers(tmp, ident.1 = "Positive",ident.2 = "Negative", logfc.threshold = 0.01, min.pct = 0.01)
+            DE3[[i]] = DE
+      },error = function(e){print(e)})
+}
+saveRDS(DE3,"//home/siwakorn/Human/RDS/BOC.DE_Bulk.Subtype1.230713.rds")
+```
+
+#DE (Per specimen)
+```{r}
+#DE_specimen.Celltype.r
+library(Seurat)
+library(harmony)
+library(tidyverse)
+options(future.globals.maxSize = 100000 * 1024^2)
+
+FullDE <- function(Obj,Group = "PTGER4.Group.Celltype2", Batch = "ID",A = "High", B = "Low"){
+      DE = list()
+      Idents(Obj) = Batch
+      for(i in unique(Obj[[]][,Batch]) ){
+            tmp = subset(Obj, idents = i)
+            print(paste0(i," : ", ncol(tmp), " Cells"))
+            tryCatch({
+                  Idents(tmp) = Group
+                  DE[[i]] = FindMarkers(tmp,ident.1 = A, ident.2 = B, logfc.threshold = 0,min.pct =0.01 )
+            }, error = function(e){print(e)})
+      }
+      #Sum table
+      df = data.frame()
+      for(i in names(DE) ){
+            tmp = DE[[i]] %>% as_tibble(rownames = "Genes") %>% dplyr::select(Genes, avg_log2FC)
+            tmp$Datasets = i
+            df = rbind(df,tmp)
+      }
+      df = spread(df, Genes, avg_log2FC) %>% as.data.frame()
+      rownames(df) = df$Datasets
+      df = dplyr::select(df,-Datasets)
+      df2 = matrix(nrow = ncol(df),ncol=0) %>% data.frame()
+      rownames(df2) = colnames(df)
+      df2$Upregulation = "NA"
+      df2$Downregulation = "NA"
+      for(i in colnames(df)){
+            tmp = df[,i] > 0 
+            df2[i,"Upregulation"] = sum(tmp)
+            tmp = df[,i] < 0 
+            df2[i,"Downregulation"] = sum(tmp)
+      }
+      df2$Upregulation = as.numeric(df2$Upregulation)
+      df2$Downregulation = as.numeric(df2$Downregulation)
+      DE[["FoldChange.Table"]] = df
+      DE[["FoldChange.Sum"]] = df2
+      return(DE)
+}
+
+BOC = readRDS("//home/siwakorn/Human/RDS/BOC.PTGER4Group.230713.rds")
+
+DE = list()
+Idents(BOC) = BOC$Identity.Celltype
+for(i in levels(Idents(BOC)) ){
+      print(i)
+      tmp = subset(BOC, idents = i)
+      DE[[i]] = FullDE(tmp, Group = "PTGER4.Group.Celltype", Batch = "Batch.scRNA")
+      saveRDS(DE,"//home/siwakorn/Human/RDS/BOC.DE_Specimen.Celltype.230713.rds")
+      
+}
+
+saveRDS(DE,"//home/siwakorn/Human/RDS/BOC.DE_Specimen.Celltype.230713.rds")
+
+#DE_specimen.Celltype2.r
+library(Seurat)
+library(harmony)
+library(tidyverse)
+options(future.globals.maxSize = 100000 * 1024^2)
+
+FullDE <- function(Obj,Group = "PTGER4.Group.Celltype2", Batch = "ID",A = "High", B = "Low"){
+      DE = list()
+      Idents(Obj) = Batch
+      for(i in unique(Obj[[]][,Batch]) ){
+            tmp = subset(Obj, idents = i)
+            print(paste0(i," : ", ncol(tmp), " Cells"))
+            tryCatch({
+                  Idents(tmp) = Group
+                  DE[[i]] = FindMarkers(tmp,ident.1 = A, ident.2 = B, logfc.threshold = 0,min.pct =0.01 )
+            }, error = function(e){print(e)})
+      }
+      #Sum table
+      df = data.frame()
+      for(i in names(DE) ){
+            tmp = DE[[i]] %>% as_tibble(rownames = "Genes") %>% dplyr::select(Genes, avg_log2FC)
+            tmp$Datasets = i
+            df = rbind(df,tmp)
+      }
+      df = spread(df, Genes, avg_log2FC) %>% as.data.frame()
+      rownames(df) = df$Datasets
+      df = dplyr::select(df,-Datasets)
+      df2 = matrix(nrow = ncol(df),ncol=0) %>% data.frame()
+      rownames(df2) = colnames(df)
+      df2$Upregulation = "NA"
+      df2$Downregulation = "NA"
+      for(i in colnames(df)){
+            tmp = df[,i] > 0 
+            df2[i,"Upregulation"] = sum(tmp)
+            tmp = df[,i] < 0 
+            df2[i,"Downregulation"] = sum(tmp)
+      }
+      df2$Upregulation = as.numeric(df2$Upregulation)
+      df2$Downregulation = as.numeric(df2$Downregulation)
+      DE[["FoldChange.Table"]] = df
+      DE[["FoldChange.Sum"]] = df2
+      return(DE)
+}
+
+BOC = readRDS("//home/siwakorn/Human/RDS/BOC.PTGER4Group.230713.rds")
+
+DE = list()
+Idents(BOC) = BOC$Identity.Celltype2
+for(i in levels(Idents(BOC)) ){
+      print(i)
+      tmp = subset(BOC, idents = i)
+      DE[[i]] = FullDE(tmp, Group = "PTGER4.Group.Celltype2", Batch = "Batch.scRNA")
+      saveRDS(DE,"//home/siwakorn/Human/RDS/BOC.DE_Specimen.Celltype2.230713.rds")
+      
+}
+
+saveRDS(DE,"//home/siwakorn/Human/RDS/BOC.DE_Specimen.Celltype2.230713.rds")
+#DE_specimen.Celltype4.r
+library(Seurat)
+library(harmony)
+library(tidyverse)
+options(future.globals.maxSize = 100000 * 1024^2)
+
+FullDE <- function(Obj,Group = "PTGER4.Group.Celltype2", Batch = "ID",A = "High", B = "Low"){
+      DE = list()
+      Idents(Obj) = Batch
+      for(i in unique(Obj[[]][,Batch]) ){
+            tmp = subset(Obj, idents = i)
+            print(paste0(i," : ", ncol(tmp), " Cells"))
+            tryCatch({
+                  Idents(tmp) = Group
+                  DE[[i]] = FindMarkers(tmp,ident.1 = A, ident.2 = B, logfc.threshold = 0,min.pct =0.01 )
+            }, error = function(e){print(e)})
+      }
+      #Sum table
+      df = data.frame()
+      for(i in names(DE) ){
+            tmp = DE[[i]] %>% as_tibble(rownames = "Genes") %>% dplyr::select(Genes, avg_log2FC)
+            tmp$Datasets = i
+            df = rbind(df,tmp)
+      }
+      df = spread(df, Genes, avg_log2FC) %>% as.data.frame()
+      rownames(df) = df$Datasets
+      df = dplyr::select(df,-Datasets)
+      df2 = matrix(nrow = ncol(df),ncol=0) %>% data.frame()
+      rownames(df2) = colnames(df)
+      df2$Upregulation = "NA"
+      df2$Downregulation = "NA"
+      for(i in colnames(df)){
+            tmp = df[,i] > 0 
+            df2[i,"Upregulation"] = sum(tmp)
+            tmp = df[,i] < 0 
+            df2[i,"Downregulation"] = sum(tmp)
+      }
+      df2$Upregulation = as.numeric(df2$Upregulation)
+      df2$Downregulation = as.numeric(df2$Downregulation)
+      DE[["FoldChange.Table"]] = df
+      DE[["FoldChange.Sum"]] = df2
+      return(DE)
+}
+
+BOC = readRDS("//home/siwakorn/Human/RDS/BOC.PTGER4Group.230713.rds")
+
+DE = list()
+Idents(BOC) = BOC$Identity.Celltype4
+for(i in levels(Idents(BOC)) ){
+      print(i)
+      tmp = subset(BOC, idents = i)
+      DE[[i]] = FullDE(tmp, Group = "PTGER4.Group.Celltype4", Batch = "Batch.scRNA")
+      saveRDS(DE,"//home/siwakorn/Human/RDS/BOC.DE_Specimen.Celltype4.230713.rds")
+      
+}
+
+saveRDS(DE,"//home/siwakorn/Human/RDS/BOC.DE_Specimen.Celltype4.230713.rds")
+#DE_specimen.Subtype1.r
+library(Seurat)
+library(harmony)
+library(tidyverse)
+options(future.globals.maxSize = 100000 * 1024^2)
+
+FullDE <- function(Obj,Group = "PTGER4.Group.Celltype2", Batch = "ID",A = "High", B = "Low"){
+      DE = list()
+      Idents(Obj) = Batch
+      for(i in unique(Obj[[]][,Batch]) ){
+            tmp = subset(Obj, idents = i)
+            print(paste0(i," : ", ncol(tmp), " Cells"))
+            tryCatch({
+                  Idents(tmp) = Group
+                  DE[[i]] = FindMarkers(tmp,ident.1 = A, ident.2 = B, logfc.threshold = 0,min.pct =0.01 )
+            }, error = function(e){print(e)})
+      }
+      #Sum table
+      df = data.frame()
+      for(i in names(DE) ){
+            tmp = DE[[i]] %>% as_tibble(rownames = "Genes") %>% dplyr::select(Genes, avg_log2FC)
+            tmp$Datasets = i
+            df = rbind(df,tmp)
+      }
+      df = spread(df, Genes, avg_log2FC) %>% as.data.frame()
+      rownames(df) = df$Datasets
+      df = dplyr::select(df,-Datasets)
+      df2 = matrix(nrow = ncol(df),ncol=0) %>% data.frame()
+      rownames(df2) = colnames(df)
+      df2$Upregulation = "NA"
+      df2$Downregulation = "NA"
+      for(i in colnames(df)){
+            tmp = df[,i] > 0 
+            df2[i,"Upregulation"] = sum(tmp)
+            tmp = df[,i] < 0 
+            df2[i,"Downregulation"] = sum(tmp)
+      }
+      df2$Upregulation = as.numeric(df2$Upregulation)
+      df2$Downregulation = as.numeric(df2$Downregulation)
+      DE[["FoldChange.Table"]] = df
+      DE[["FoldChange.Sum"]] = df2
+      return(DE)
+}
+
+BOC = readRDS("//home/siwakorn/Human/RDS/BOC.PTGER4Group.230713.rds")
+
+DE = list()
+Idents(BOC) = BOC$Identity.Celltype4
+for(i in levels(Idents(BOC)) ){
+      print(i)
+      tmp = subset(BOC, idents = i)
+      DE[[i]] = FullDE(tmp, Group = "PTGER4.Group.Celltype4", Batch = "Batch.scRNA")
+      saveRDS(DE,"//home/siwakorn/Human/RDS/BOC.DE_Specimen.Celltype4.230713.rds")
+      
+}
+
+saveRDS(DE,"//home/siwakorn/Human/RDS/BOC.DE_Specimen.Celltype4.230713.rds")
+```
+
+
+
+#DE Table Conversion to df and GSEA
+##Bulk (Celltype)
+```{r}
+#DE <- readRDS("~/RStudioProject/scRNA/BOC.DE_Bulk.Celltype.230713.rds")
+DE <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC.DE_Bulk.Celltype.230713.rds")
+df = data.frame()
+for(i in names(DE)){
+  tmp = names(DE[[i]]) 
+  for(j in tmp ){
+      df1 = DE[[i]][[j]] %>% as_tibble(rownames = "Genes")
+      df1$Cluster = i
+      df1$Condition = j
+      df = rbind(df,df1)
+      }
+}
+
+###GSEA
+GSEA = list()
+GSEA_H = list()
+for(i in names(DE)[1:8] ){
+  tmp = DE[[i]][["High-Low"]] %>% as_tibble(rownames = "Genes" ) %>% dplyr::select(Genes, avg_log2FC) %>% arrange(avg_log2FC)
+  GSEA[[i]] <- fgsea(fgsea_sets, stats = deframe(tmp), nperm = 50000) %>% as_tibble() %>% arrange(desc(NES) )
+  GSEA_H[[i]] <- fgsea(fgsea_sets_H, stats = deframe(tmp), nperm = 50000) %>% as_tibble() %>% arrange(desc(NES) )
+}
+DE$GSEA = GSEA
+DE$GSEA_H = GSEA_H
+
+
+###GSEA p < 0.05
+GSEA = list()
+GSEA_H = list()
+for(i in names(DE)[1:8] ){
+  tmp = DE[[i]][["High-Low"]] %>% as_tibble(rownames = "Genes" ) %>% filter(p_val < 0.05) %>% dplyr::select(Genes, avg_log2FC) %>% arrange(avg_log2FC)
+  GSEA[[i]] <- fgsea(fgsea_sets, stats = deframe(tmp), nperm = 50000) %>% as_tibble() %>% arrange(desc(NES) )
+  GSEA_H[[i]] <- fgsea(fgsea_sets_H, stats = deframe(tmp), nperm = 50000) %>% as_tibble() %>% arrange(desc(NES) )
+}
+DE$GSEA_p05 = GSEA
+DE$GSEA_H_p05 = GSEA_H
+
+###GSEA Adj pval < 0.05
+GSEA = list()
+GSEA_H = list()
+for(i in names(DE)[1:8] ){
+  tmp = DE[[i]][["High-Low"]] %>% as_tibble(rownames = "Genes" ) %>% filter(p_val_adj < 0.05) %>% dplyr::select(Genes, avg_log2FC) %>% arrange(avg_log2FC)
+  GSEA[[i]] <- fgsea(fgsea_sets, stats = deframe(tmp), nperm = 50000) %>% as_tibble() %>% arrange(desc(NES) )
+  GSEA_H[[i]] <- fgsea(fgsea_sets_H, stats = deframe(tmp), nperm = 50000) %>% as_tibble() %>% arrange(desc(NES) )
+}
+DE$GSEA_padj05 = GSEA
+DE$GSEA_H_padj05 = GSEA_H
+
+###GSEA Multilevel
+GSEA = list()
+GSEA_H = list()
+for(i in names(DE)[1:8] ){
+  tmp = DE[[i]][["High-Low"]] %>% as_tibble(rownames = "Genes" ) %>% dplyr::select(Genes, avg_log2FC) %>% arrange(avg_log2FC)
+  GSEA[[i]] <- fgseaMultilevel(fgsea_sets, stats = deframe(tmp) ) %>% arrange(desc(NES) )
+  GSEA_H[[i]] <- fgseaMultilevel(fgsea_sets_H, stats = deframe(tmp) ) %>% arrange(desc(NES) )
+}
+DE$GSEA2 = GSEA
+DE$GSEA_H2 = GSEA_H
+
+DE$df.HighLow = filter(df, Condition == "High-Low")
+DE$df.HighInt = filter(df, Condition == "High-Intermediate")
+DE$df.HighUndetected= filter(df, Condition == "High-Undetected")
+DE$df.PosNeg = filter(df, Condition == "Positive-Negative")
+
+#saveRDS(DE,"~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC.DE_Bulk.Celltype.Converted.GSEA_nperm50K.2300901.rds")
+DE = readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC.DE_Bulk.Celltype.Converted.GSEA_nperm50K.2300901.rds")
+```
+###Check
+```{r}
+
+selected.pathway = c("HALLMARK_TNFA_SIGNALING_VIA_NFKB","HALLMARK_INFLAMMATORY_RESPONSE" ,"HALLMARK_OXIDATIVE_PHOSPHORYLATION","HALLMARK_MYC_TARGETS_V1","HALLMARK_INTERFERON_GAMMA_RESPONSE","HALLMARK_IL2_STAT5_SIGNALING",
+                     "MOOTHA_GLYCOLYSIS","MOOTHA_PGC","REACTOME_GLYCOLYSIS","WP_MITOCHONDRIAL_COMPLEX_I_ASSEMBLY_MODEL_OXPHOS_SYSTEM","WP_MITOCHONDRIAL_COMPLEX_II_ASSEMBLY","WP_MITOCHONDRIAL_COMPLEX_III_ASSEMBLY","WP_MITOCHONDRIAL_COMPLEX_IV_ASSEMBLY","GOCC_PROTON_TRANSPORTING_ATP_SYNTHASE_COMPLEX")
+DE$GSEA2$T_CD8 %>% filter(pathway %in% selected.pathway)
+DE$GSEA2$TIM %>% filter(pathway %in% selected.pathway)
+
+```
+
+
+##Bulk (Celltype4)
+```{r}
+DE <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC.DE_Bulk.Celltype4.230713.rds")
+df = data.frame()
+for(i in names(DE)){
+  tmp = names(DE[[i]]) 
+  for(j in tmp ){
+      df1 = DE[[i]][[j]] %>% as_tibble(rownames = "Genes")
+      df1$Cluster = i
+      df1$Condition = j
+      df = rbind(df,df1)
+      }
+}
+DE$df.HighLow = filter(df, Condition == "High-Low")
+DE$df.HighInt = filter(df, Condition == "High-Intermediate")
+DE$df.HighUndetected= filter(df, Condition == "High-Undetected")
+DE$df.PosNeg = filter(df, Condition == "Positive-Negative")
+
+GSEA = list()
+###GSEA
+for(i in names(DE)){
+  print(i)
+  tmp = DE[[i]][["High-Low"]] %>% as_tibble(rownames = "Genes" ) %>% dplyr::select(Genes, avg_log2FC) %>% arrange(avg_log2FC)
+  ranks<- deframe(tmp)
+  fgseaRes1 <- fgsea(fgsea_sets_H, stats = ranks, nperm = 1000)
+  tmp1 = fgseaRes1 %>% as_tibble() %>% arrange(desc(NES) ) #%>% filter(padj < 0.05)
+  fgseaRes1 <- fgsea(fgsea_sets_c2, stats = ranks, nperm = 1000)
+  tmp2 = fgseaRes1 %>% as_tibble() %>% arrange(desc(NES) ) #%>% filter(padj < 0.05)
+  GSEA[[i]] = rbind(tmp1,tmp2) %>% arrange(desc(NES) )
+}
+DE$GSEA = GSEA
+#saveRDS(DE,"~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC.DE_Bulk.Celltype4.230713.Converted.rds")
+DE = readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC.DE_Bulk.Celltype4.230713.Converted.rds")
+DE = readRDS("~/RStudioProject/scRNA/BOC.DE_Bulk.Celltype4.230713.Converted.rds")
+```
+
+##Per Specimen Celltype
+```{r}
+DE2 <- readRDS("BOC.DE_Specimen.Celltype.230713.rds")
+df = data.frame()
+for(i in names(DE2)){
+  tmp = names(DE2[[i]]) %>% setdiff(c("FoldChange.Table","FoldChange.Sum"))
+  for(j in tmp ){
+      df1 = DE2[[i]][[j]] %>% as_tibble(rownames = "Genes")
+      df1$Cluster = i
+      df1$Dataset = j
+      df = rbind(df,df1)
+      }
+}
+df$Cluster = factor(df$Cluster, levels= names(DE2) )
+DE2$df = df
+GSEA = list()
+for(j in c("T_CD8","TIM")){
+  tmp1 = setdiff(names(DE2[[j]] ),c("FoldChange.Table", "FoldChange.Sum"))
+  df = data.frame()
+  for(i in tmp1){
+    tmp = DE2[[j]][[i]] %>% as_tibble(rownames = "Genes" ) %>% dplyr::select(Genes, avg_log2FC) %>% arrange(avg_log2FC)
+    ranks<- deframe(tmp)
+    fgseaRes1 <- fgsea(fgsea_sets, stats = ranks, nperm = 1000)
+    df1 = fgseaRes1 %>% arrange(NES)
+    df1$Dataset = i
+    df = rbind(df,df1)
+  }
+  df$Cluster = j
+  GSEA[[j]] = df
+}
+DE2$GSEA = GSEA
+saveRDS(DE2,"~/RStudioProject/scRNA/BOC.DE_Specimen.Celltype.230713.converted.rds")
+```
+
+##Per Specimen Celltype4
+```{r}
+DE2 <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC.DE_Specimen.Celltype4.230713.rds")
+df = data.frame()
+for(i in names(DE2)){
+  tmp = names(DE2[[i]]) %>% setdiff(c("FoldChange.Table","FoldChange.Sum"))
+  for(j in tmp ){
+      df1 = DE2[[i]][[j]] %>% as_tibble(rownames = "Genes")
+      df1$Cluster = i
+      df1$Dataset = j
+      df = rbind(df,df1)
+      }
+}
+df$Cluster = factor(df$Cluster, levels= names(DE2) )
+DE2$df = df
+
+GSEA = list()
+for(j in c("T_CD8","TIM")){
+  tmp1 = setdiff(names(DE2[[j]] ),c("FoldChange.Table", "FoldChange.Sum"))
+  df = data.frame()
+  for(i in tmp1){
+    tmp = DE2[[j]][[i]] %>% as_tibble(rownames = "Genes" ) %>% dplyr::select(Genes, avg_log2FC) %>% arrange(avg_log2FC)
+    ranks<- deframe(tmp)
+    fgseaRes1 <- fgsea(fgsea_sets, stats = ranks, nperm = 1000)
+    df1 = fgseaRes1 %>% arrange(NES)
+    df1$Dataset = i
+    df = rbind(df,df1)
+  }
+  df$Cluster = j
+  GSEA[[j]] = df
+}
+DE2$GSEA = GSEA
+#saveRDS(DE2,"~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC.DE_Specimen.Celltype4.230713.converted.rds")
+DE2 = readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC.DE_Specimen.Celltype4.230713.converted.rds")
+```
+
+##Per Specimen Subtype1
+```{r}
+DE2 <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC.DE_Specimen.Subtype1.230713.rds")
+DE2$
+df = data.frame()
+for(i in names(DE2)[c(3:5,11)]){
+  tmp = names(DE2[[i]]) %>% setdiff(c("FoldChange.Table","FoldChange.Sum"))
+  for(j in tmp ){
+      df1 = DE2[[i]][[j]] %>% as_tibble(rownames = "Genes")
+      df1$Cluster = i
+      df1$Dataset = j
+      df = rbind(df,df1)
+      }
+}
+df$Cluster = factor(df$Cluster, levels = names(DE2))
+DE2$df.CD8 = df
+
+df = data.frame()
+for(i in names(DE2)[19:22] ){
+  tmp = names(DE2[[i]]) %>% setdiff(c("FoldChange.Table","FoldChange.Sum"))
+  for(j in tmp ){
+      df1 = DE2[[i]][[j]] %>% as_tibble(rownames = "Genes")
+      df1$Cluster = i
+      df1$Dataset = j
+      df = rbind(df,df1)
+      }
+}
+df$Cluster = factor(df$Cluster, levels = names(DE2))
+DE2$df.TIM = df
+#saveRDS(DE2,"~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC.DE_Specimen.Subtype1.230713.converted.rds")
+```
+
+#PLOT: DE
+###GSEA | NES (color)
+```{r}
+GSEA = DE$GSEA
+selected.pathway = c("Interferon","Oxidative","Cebp")
+df = data.frame()
+for(p in selected.pathway){
+  for(i in names(GSEA)){
+    tmp1 = GSEA[[i]][grep(p,GSEA[[i]]$pathway, ignore.case = T),]
+    tmp1$Cluster = i
+    tmp1$pw = p
+    df = rbind(df,tmp1)
+  }
+}
+df1 = df %>% dplyr::select(pw,pathway,pval,padj,NES,Cluster)
+df1$Cluster = factor(df1$Cluster, levels = names(GSEA)) 
+for(i in 1){
+  df1$p_val_cat = df1$pval
+  df1$p_val_cat[df1$pval > 0.05 ] = ">0.05"
+  df1$p_val_cat[df1$pval < 0.05 ] = "<0.05"
+  df1$p_val_cat[df1$pval < 0.01 ] = "<0.01"
+  df1$p_val_cat[df1$pval < 0.001 ] = "<0.001"
+  df1$p_val_cat = factor(df1$p_val_cat, levels = c(">0.05","<0.05","<0.01","<0.001"))
+  PNG("BOC.Bulk.GSEA",w= c(5 + (length(unique(df1$pathway)))*0.3),h=14)
+  print(
+    ggplot(df1,aes(x = pathway, y = fct_rev(Cluster) )) + 
+  geom_point(aes(color = NES, size = p_val_cat) ) + 
+  facet_grid(. ~ pw, scales = "free", space="free", switch = "y")+
+  scale_size_manual(values = c(4,6,8,10)) + 
+  scale_color_gradientn(colours = Col.HiLow.9Shades, values = scales::rescale(c(min(df1$NES),-0.7,0,0.7,max(df1$NES)) ), name = "NES")+ 
+  theme_classic() + 
+  theme(plot.title = element_text(size =20, face = "bold",color = "black"),
+                        axis.title = element_blank(), 
+                        axis.text.x = element_text(size =11,angle = 90,color = "black",hjust=1),
+                        axis.text.y = element_text(size =11, face = "bold", color = "black"),
+                        strip.text.y.left = element_text(size =18, face = "bold", color = "black",angle = 0),
+                        strip.text.x.top = element_text(size =18, face = "bold", color = "black",angle = 0),
+                        strip.background = element_rect(fill = "white"),
+                        strip.placement = "outside",
+                        legend.position = "bottom"
+                        )
+  
+  )
+  
+  dev.off()
+}
+```
+
+#####selected candiates
+```{r}
+selected.pathway = c("GERY_CEBP_TARGETS","HALMOS_CEBPA_TARGETS_UP","TAVOR_CEBPA_TARGETS_UP",
+                     "HALLMARK_INTERFERON_ALPHA_RESPONSE","BROWNE_INTERFERON_RESPONSIVE_GENES",
+                     "REACTOME_INTERFERON_ALPHA_BETA_SIGNALING","WP_INTERFERON_TYPE_I_SIGNALING_PATHWAYS",
+                     "HALLMARK_INTERFERON_GAMMA_RESPONSE","REACTOME_INTERFERON_GAMMA_SIGNALING","WP_TYPE_II_INTERFERON_SIGNALING_IFNG",
+                     "REACTOME_INTERFERON_SIGNALING","ZHANG_INTERFERON_RESPONSE",
+                     "KEGG_OXIDATIVE_PHOSPHORYLATION","HALLMARK_OXIDATIVE_PHOSPHORYLATION","WP_OXIDATIVE_PHOSPHORYLATION"  )
+selected.pathway = c("WP_AEROBIC_GLYCOLYSIS","MOOTHA_GLYCOLYSIS","REACTOME_GLYCOLYSIS")
+
+df1 = filter(df, pathway %in% selected.pathway) %>% dplyr::select(pw,pathway,pval,padj,NES,Cluster)
+df1$Cluster = factor(df1$Cluster, levels = names(GSEA)) 
+for(i in 1){
+  df1$p_val_cat = df1$pval
+  df1$p_val_cat[df1$pval > 0.05 ] = ">0.05"
+  df1$p_val_cat[df1$pval < 0.05 ] = "<0.05"
+  df1$p_val_cat[df1$pval < 0.01 ] = "<0.01"
+  df1$p_val_cat[df1$pval < 0.001 ] = "<0.001"
+  df1$p_val_cat = factor(df1$p_val_cat, levels = c(">0.05","<0.05","<0.01","<0.001"))
+  PNG("BOC.Bulk.GSEA.candidates",w= c(3 + (length(unique(df1$pathway)))*0.3),h=9)
+  print(
+    ggplot(df1,aes(x = pathway, y = fct_rev(Cluster) )) + 
+  geom_point(aes(color = NES, size = p_val_cat) ) + 
+  facet_grid(. ~ pw, scales = "free", space="free", switch = "y")+
+  scale_size_manual(values = c(4,6,8,10)) + 
+  scale_color_gradientn(colours = Col.HiLow.9Shades, values = scales::rescale(c(min(df1$NES),-0.7,0,0.7,max(df1$NES)) ), name = "NES")+ 
+  theme_classic() + 
+  theme(plot.title = element_text(size =20, face = "bold",color = "black"),
+                        axis.title = element_blank(), 
+                        axis.text.x = element_text(size =11,angle = 90,color = "black",hjust=1),
+                        axis.text.y = element_text(size =11, face = "bold", color = "black"),
+                        strip.text.y.left = element_text(size =18, face = "bold", color = "black",angle = 0),
+                        strip.text.x.top = element_text(size =18, face = "bold", color = "black",angle = 0),
+                        strip.background = element_rect(fill = "white"),
+                        strip.placement = "outside",
+                        legend.position = "bottom"
+                        )
+  
+  )
+  
+  dev.off()
+}
+```
+
+###GSEA | Table
+```{r}
+for(i in c("T_CD8","TIM")){
+    tmp1 = DE[[i]][["High-Low"]] %>% as_tibble(rownames = "Genes" ) %>% dplyr::select(Genes, avg_log2FC) %>% arrange(avg_log2FC)
+    tmp1 = deframe(tmp1)
+    PNG(paste0("BOC.Bulk.GSEA.Table.",i),w=9,h=7)
+      print(plotGseaTable(pathways = fgsea_sets[selected.pathway],tmp1, GSEA[[i]],gseaParam = 0.3 ) )
+  dev.off()
+}
+```
+
+###GSEA | Running Plot
+```{r}
+DE <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC.DE_Bulk.Celltype.Converted.GSEA_nperm50K.230821.rds")
+selected.pathway = c("MOOTHA_PGC","HALLMARK_TNFA_SIGNALING_VIA_NFKB","HALLMARK_INFLAMMATORY_RESPONSE" ,"HALLMARK_OXIDATIVE_PHOSPHORYLATION","HALLMARK_MYC_TARGETS_V1","HALLMARK_INTERFERON_GAMMA_RESPONSE" )
+selected.pathway = c("MOOTHA_PGC")
+GSEA$T_CD8 %>% filter(pathway %in% selected.pathway)
+GSEA$T_CD8 
+GSEA = DE$GSEA
+for(i in c("T_CD8","TIM")){
+  tmp1 = DE[[i]][["High-Low"]] %>% as_tibble(rownames = "Genes" ) %>% dplyr::select(Genes, avg_log2FC) %>% arrange(avg_log2FC)
+  tmp2 = GSEA[[i]] %>% as.data.frame()
+  rownames(tmp2) = tmp2$pathway
+  ranks = deframe(tmp1)
+  for(p in selected.pathway){
+    tmp3 = paste0("NES = ",tmp2[p,"NES"],"\n p-value = ", tmp2[p,"pval"],"\n adjusted p-value = ", tmp2[p,"padj"])
+    tmp = plotEnrichment(fgsea_sets[[p]], ranks,0.5,0.3  ) + 
+      ggtitle(paste0(i," | ", p)) + 
+      labs(subtitle = tmp3) +
+      theme(title = element_text(size=5))
+    tmp$layers[[5]]$aes_params$colour <- 'firebrick'
+    PNG(paste0("Temporary.BOC.Bulk.Celltype.GSEAPlot.",i,".",p),w=5,h=3)
+    #print(tmp  +  annotate("text", x=10, y=(tmp2[p,"NES"])/5, label= tmp3,size =2,hjust=0) )
+    print(tmp)
+    dev.off()
+  }
+}
+```
+
+###GSEA | NES (x position)
+```{r}
+DE2 = readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC.DE_Specimen.Celltype4.230713.converted.rds")
+selected.pathway = names(fgsea_sets)[grep("aspartate", names(fgsea_sets), ignore.case = T)]
+
+selected.pathway = c("HALLMARK_FATTY_ACID_METABOLISM" ,"REACTOME_FATTY_ACIDS","REACTOME_MITOCHONDRIAL_FATTY_ACID_BETA_OXIDATION","WP_FATTY_ACID_TRANSPORTERS","WP_FATTY_ACID_BETAOXIDATION","BIOCARTA_MALATEX_PATHWAY")
+selected.genes = sort(unique(unlist(fgsea_sets[selected.pathway])))
+GeneSet$DE$FattyMetabolism = selected.genes
+for(c in c("T_CD8","TIM")){
+  df = DE2$GSEA[[c]]
+  df1 = filter(df, pathway %in% selected.pathway )
+  df1$padj_cat = ">0.05"
+  df1$padj_cat[c(df1$padj<0.05)] = "<0.05"
+  plot1 = df1 |> ggplot(aes(y = fct_rev(Dataset))) + 
+    geom_point(shape = 18,size =3,aes(x = NES)) +
+    geom_vline(xintercept = 0 ,linetype="dotdash", )+
+    xlim(-2.5,2.5)+
+    theme_classic() +
+    facet_grid(.~pathway) +
+    ylab("Dataset")+
+    theme(axis.text = element_text(color = "black"),
+        panel.border = element_rect(color = "black", fill = NA, size =1))
+  for(i in 1){
+    PNG(paste0("BOC.CD45.",c,".GSEAperSpecimen.Fatty"), h = 4, w = 30, r=200)
+    print(plot1)
+    dev.off()
+  }
+}
+
+```
+
+
+##GSEA | by GGGSEA
+```{r}
+library(gggsea)
+DE <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC.DE_Bulk.Celltype.Converted.GSEA_nperm50K.230821.rds")
+tmp1  = DE[["T_CD8"]][["High-Low"]] %>% as_tibble(rownames = "Genes" ) %>% dplyr::select(Genes, avg_log2FC) %>% arrange(desc(avg_log2FC))
+ranks = deframe(tmp1)
+tmp2 = list("Mootha_Glycolysis" =fgsea_sets$MOOTHA_GLYCOLYSIS )
+df <- gseaCurve(ranks, tmp2)
+ggplot2::ggplot() +   geom_gsea(df)
+```
+
+#PLOT: Heatmap
+##Bulk (Celltype4)
+```{r}
+DE <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC.DE_Bulk.Celltype4.230713.Converted.rds")
+DE <- readRDS("~/RStudioProject/scRNA/BOC.DE_Bulk.Celltype4.230713.Converted.rds")
+df = DE$df.HighLow
+
+selected.cluster = c("NK","T_CD8","T_CD4","TIM","DC")
+GeneSet$DE$Common
+GeneSet$DE$tmp = c("NDUFA5","NDUFA6","NDUFA7","COX4I1","COX5A","COX6B1","ATP5MC1","ATP5MC2","ATP5PD" )
+for(i in c("tmp") ){
+  selected.genes = unlist( GeneSet$DE[[i]] ) %>% unique()
+  df1 = filter(df, Genes %in% selected.genes )  %>% filter(Cluster %in% selected.cluster)
+  df1$Cluster = factor(df1$Cluster, levels = selected.cluster)
+  df1$Genes = factor(df1$Genes, levels = selected.genes  )
+  df1$p_val_cat = df1$p_val
+  df1$p_val_cat[df1$p_val > 0.05 ] = ">0.05"
+  df1$p_val_cat[df1$p_val < 0.05 ] = "<0.05"
+  df1$p_val_cat[df1$p_val < 0.01 ] = "<0.01"
+  df1$p_val_cat[df1$p_val < 0.001 ] = "<0.001"
+  df1$p_val_cat = factor(df1$p_val_cat, levels = c(">0.05","<0.05","<0.01","<0.001"))
+  if( class(GeneSet$DE[[i]]) == "list"){
+    tmp = data.frame(matrix(ncol = (ncol(df1)+1), nrow = 0))
+    colnames(tmp) = c(colnames(df1),"Set")
+    for(j in names(GeneSet$DE[[i]])){
+      tmp1 = filter(df1, Genes %in% GeneSet$DE[[i]][[j]] ) %>% filter(!Genes %in% tmp[,1])
+      tmp1$Set = j
+      tmp = rbind(tmp,tmp1)
+    }
+    tmp$Set = factor(tmp$Set, levels = names(GeneSet$DE[[i]]))
+    df1 = tmp
+    plot = ggplot(df1, aes(y = fct_rev(Cluster), x = Genes  ) ) + facet_grid(. ~ Set, scales = "free", space="free", switch = "y") 
+                  
+  } else {
+    plot = ggplot(df1, aes(y = fct_rev(Cluster), x = Genes  ) ) + facet_grid(. ~ . , scales = "free", space="free", switch = "y") 
+  }
+  plot = plot + theme_bw() + Dot_axis90A + ggtitle(i)+
+                  geom_tile(color = "white",aes(fill =avg_log2FC)) +  scale_fill_gradientn(colours = Col.BW , values = scales::rescale(c(min(df1$avg_log2FC),-0.1,0,0.1,max(df1$avg_log2FC)) ))+
+                  #geom_tile(color = "white",aes(fill =avg_log2FC)) +  scale_fill_gradientn(colours = Col.HiLow.9Shades, values = scales::rescale(c(min(df1$avg_log2FC),-0.1,0,0.1,max(df1$avg_log2FC)) ))+
+                  #geom_point(aes(color = avg_log2FC, size = p_val_cat))+scale_size_manual(values = c(4,6,8,10)) + scale_color_gradientn(colours = Col.HiLow.9Shades, values = scales::rescale(c(min(df1$avg_log2FC),-0.6,0,0.6,max(df1$avg_log2FC)) ), name = "Average\nLog2 FoldChange")+ 
+                  theme(plot.title = element_text(size =20, face = "bold",color = "black"),
+                        axis.title = element_blank(), 
+                        axis.text.x = element_text(size =16 ),
+                        axis.text.y = element_text(size =16, color = "black"),
+                        strip.text.y.left = element_text(size =18, face = "bold", color = "black",angle = 0),
+                        strip.text.x.top = element_text(size =18, face = "bold", color = "black",angle = 0),
+                        strip.background = element_rect(fill = "white"),
+                        strip.placement = "outside",
+                        legend.position = "bottom"
+                        )
+                
+  PNG(paste0("BOC.DE.Heatmap.Celltype4.BW.",i), h = 3.5, w = c(1.5 + (length(unique(df1$Genes))*0.3) ))
+  print(plot)
+  dev.off()
+}
+```
+
+##Per specimen (Celltype)
+
+```{r}
+#DE2 <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC.DE_Specimen.Celltype4.230713.converted.rds")
+DE2 <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC.DE_Specimen.Celltype.230713.converted.rds")
+df = DE2$df
+selected.cluster = c("NK","T_CD8","T_CD4","T_CD4_FOXP3","TIM","DC")
+GeneSet$DE$PGC = fgsea_sets$MOOTHA_PGC
+for(i in c("PGC") ){
+  selected.genes = unlist( GeneSet$DE[[i]] ) %>% unique()
+  df1 = filter(df, Genes %in% selected.genes )  %>% filter(Cluster %in% selected.cluster)
+  df1$Genes = factor(df1$Genes, levels = selected.genes  )
+  df1$p_val_cat = df1$p_val
+  df1$p_val_cat[df1$p_val > 0.05 ] = ">0.05"
+  df1$p_val_cat[df1$p_val < 0.05 ] = "<0.05"
+  df1$p_val_cat[df1$p_val < 0.01 ] = "<0.01"
+  df1$p_val_cat[df1$p_val < 0.001 ] = "<0.001"
+  df1$p_val_cat = factor(df1$p_val_cat, levels = c(">0.05","<0.05","<0.01","<0.001"))
+  if( class(GeneSet$DE[[i]]) == "list"){
+    tmp = data.frame(matrix(ncol = (ncol(df1)+1), nrow = 0))
+    colnames(tmp) = c(colnames(df1),"Set")
+    for(j in names(GeneSet$DE[[i]])){
+      tmp1 = filter(df1, Genes %in% GeneSet$DE[[i]][[j]] ) %>% filter(!Genes %in% tmp[,1])
+      tmp1$Set = j
+      tmp = rbind(tmp,tmp1)
+    }
+    tmp$Set = factor(tmp$Set, levels = names(GeneSet$DE[[i]]))
+    df1 = tmp
+    plot = ggplot(df1, aes(y = Dataset , x = Genes  ) ) + facet_grid(Cluster ~ Set, scales = "free", space="free", switch = "y") 
+                  
+  } else {
+    plot = ggplot(df1, aes(y = Dataset , x = Genes  ) ) + facet_grid(Cluster ~ . , scales = "free", space="free", switch = "y") 
+  }
+  plot = plot + theme_bw() + Dot_axis90A + ggtitle(i)+
+                  geom_tile(color = "white",aes(fill =avg_log2FC)) +  scale_fill_gradientn(colours = Col.HiLow.9Shades, values = scales::rescale(c(min(df1$avg_log2FC),-0.1,0,0.1,max(df1$avg_log2FC)) ))+
+                  #geom_point(aes(color = avg_log2FC, size = p_val_cat))+scale_size_manual(values = c(4,6,8,10)) + scale_color_gradientn(colours = Col.HiLow.9Shades, values = scales::rescale(c(min(df1$avg_log2FC),-0.2,0,0.2,max(df1$avg_log2FC)) ), name = "Average\nLog2 FoldChange")+ 
+                  theme(plot.title = element_text(size =20, face = "bold",color = "black"),
+                        axis.title = element_blank(), 
+                        axis.text.x = element_text(size =16, face = "bold"),
+                        axis.text.y = element_text(size =16, face = "bold", color = "black"),
+                        strip.text.y.left = element_text(size =18, face = "bold", color = "black",angle = 0),
+                        strip.text.x.top = element_text(size =18, face = "bold", color = "black",angle = 0),
+                        strip.background = element_rect(fill = "white"),
+                        strip.placement = "outside",
+                        legend.position = "bottom"
+                        )
+                
+  PNG(paste0("Temporary.BOC.DE.perSpec.Heatmap.Celltype.",i), h = 30, w = c(3.5 + (length(unique(df1$Genes))*0.3) ))
+  print(plot)
+  dev.off()
+}
+
+```
+
+#PLOT: Volcano
+```{r}
+tmp3 = DE2[[i]] %>% arrange(desc(avg_log2FC)) %>% as_tibble(rownames = "Genes") %>% filter(!Genes == "PTGER4")
+#tmp3A = filter(tmp3, Genes %in% fgsea_sets_H$HALLMARK_OXIDATIVE_PHOSPHORYLATION)
+#tmp3B = filter(tmp3, !Genes %in% fgsea_sets_H$HALLMARK_OXIDATIVE_PHOSPHORYLATION)
+tmp3A = filter(tmp3, Genes %in% fgsea_sets_H$HALLMARK_INFLAMMATORY_RESPONSE)
+tmp3B = filter(tmp3, !Genes %in% fgsea_sets_H$HALLMARK_INFLAMMATORY_RESPONSE)
+tmp3A$Pathway = "selected"
+tmp3B$Pathway = "Other"
+tmp3 = rbind(tmp3A,tmp3B)
+
+tmp3$logp = log10(tmp3$p_val_adj )
+tmp3$logp = tmp3$logp*(-1) 
+ggplot(tmp3, aes(x=avg_log2FC, y = logp)) + 
+  geom_point(aes(color = Pathway,size = Pathway)) +
+  scale_color_manual(values = c("black","red")) + 
+  scale_size_manual(values = c(0.2,1))
+tmp1
+
+tmp3 = BOCDF$DE.HU[[i]] %>% arrange(desc(avg_log2FC)) %>% as_tibble(rownames = "Genes") %>% filter(!Genes == "PTGER4")
+tmp3A = filter(tmp3, Genes %in% fgsea_sets_H$HALLMARK_OXIDATIVE_PHOSPHORYLATION)
+tmp3B = filter(tmp3, !Genes %in% fgsea_sets_H$HALLMARK_OXIDATIVE_PHOSPHORYLATION)
+#tmp3A = filter(tmp3, Genes %in% fgsea_sets_H$HALLMARK_INFLAMMATORY_RESPONSE)
+#tmp3B = filter(tmp3, !Genes %in% fgsea_sets_H$HALLMARK_INFLAMMATORY_RESPONSE)
+tmp3A$Pathway = "selected"
+tmp3B$Pathway = "Other"
+tmp3 = rbind(tmp3A,tmp3B)
+
+tmp3$logp = log10(tmp3$p_val_adj )
+tmp3$logp = tmp3$logp*(-1) 
+ggplot(tmp3, aes(x=avg_log2FC, y = logp)) + 
+  geom_point(aes(color = Pathway,size = Pathway)) +
+  scale_color_manual(values = c("black","red")) + 
+  scale_size_manual(values = c(0.2,1))
+```
+
+
+#PLOT: Comparison Hi-Int-Lo-UD
+```{r}
+Idents(BOC) = BOC$Identity.Celltype
+CD8 = subset(BOC,idents= "T_CD8")
+Idents(CD8) = CD8$PTGER4.Group.Celltype
+tmp = DotPlot(CD8, features = GeneSet$DE$CD8.Overview2 ) + Dot_axis90A+scale_ig 
+tmp$layers[[1]] = geom_tile(aes(fill = avg.exp.scaled))
+tmp + scale_fill_gradientn(colours = Col.HiLow.9Shades)
+VlnPlot(CD8,"IL2RA")
+```
+
+
+###GSEA
+```{r}
+Sanin = readRDS("~/RStudioProject/PublicBulkRNA/GSE119509.Sanin/Sanin.230810.rds" )
+df = Sanin$GSEA %>% filter(pathway %in% names(fgsea_sets_H) )
+nrow(df)
+df = df[c(1:8,43:50),]
+df$pathway = factor(df$pathway, levels = df$pathway)
+df$Change = "Down"
+df$Change[c(df$NES>0)] = "Up"
+df$Change = factor(df$Change,levels = c("Up","Down"))
+
+for(i in 1){
+  PNG("Sanin.GSEA.230817",w=12,h=5,r=300)
+  print(
+    ggplot(df, aes(y = fct_rev(pathway), x= NES))+
+      geom_bar(stat = "identity", aes(fill = Change)) + 
+      scale_fill_manual(values = c("firebrick","dodgerblue4"))+
+      theme_classic() +
+      theme(axis.text = element_text(color = "black"),
+            axis.text.y = element_text(size = 14,color="black"),
+            axis.text.x = element_text(size = 14,color="black"),
+            axis.title.y = element_blank()) 
+  )
+  dev.off()
+}
+
+```
+
+
+###Volcano
+```{r}
+df = Sanin$DE 
+df$Genes = df$mgi_symbol
+BOCDF[["Sanin_M2PGE2-M2"]] = df
+
+for(q in c("ETC.selected","Ribosome")){
+  tmp = df 
+  tmp$logP = (-1)*(log10(tmp$pvalue))
+  tmp1 = tmp %>% filter(Genes %in% geneSet[[q]] )
+  tmp1$Group = q
+  tmp2 = tmp %>% filter(!Genes %in% geneSet[[q]] )
+  tmp2$Group = "other"
+  tmp = rbind(tmp1,tmp2)
+  tmp$logP %>% range()
+  tmp = tmp[!is.na(tmp$logP),]
+  tmp
+  for(i in 1){  
+    png(paste0("~/RStudioProject/PublicBulkRNA/GSE119509.Sanin/Fig/Sanin.M2_PGE2-M2.",q,".png"),width=7,height=6,res=200,units = "in")
+    print(
+      ggplot(tmp, aes(x = log2FoldChange, y = logP)) + 
+      geom_point(size = 0.4,color ="grey")+
+      geom_point(size = 1, color = "red",  data = subset(tmp, Group %in% q  ) )+
+      geom_text_repel(aes(label = Genes),color ="black",size =3.5,
+                      fontface ="bold.italic", 
+                      data = subset(tmp, Group == q) , 
+                      #max.overlaps = Inf,box.padding = 1,
+                      max.overlaps = 50,box.padding = 0.4,
+                      max.time = 2) +
+      theme_linedraw() +
+      xlim(-4,4) + ylim(0,55) +
+      ggtitle(paste0("Sanin: PGE2 M2 vs M2 | ",q))
+    )
+    dev.off()
+    }
+}
+
+```
+###Heatmap
+```{r}
+tmp1A = counts(Sanin$dds,normalized = T) 
+tmp2 = mapIds(org.Mm.eg.db, keys= rownames(tmp1), keytype = "ENSEMBL", column = "SYMBOL")
+tmp2 = data.frame("ENSEMBL" = names(tmp2),"Genes" = tmp2)
+tmp1B = t(apply(tmp1A,1, scale))
+colnames(tmp1B) = colnames(tmp1A)
+tmp1B = as_tibble(tmp1B,rownames = "ENSEMBL")
+df = left_join(tmp1B,tmp2) %>% dplyr::select(Genes, colnames(tmp1A))
+Sanin$Scale = df
+BOCDF$`Sanin_M2PGE2-M2_Scale` = df
+df = BOCDF$`Sanin_M2PGE2-M2_Scale`
+df
+df = df[complete.cases(df),]
+df = df %>% gather(key = "ID", value = "Expression",-Genes) 
+df
+
+for(q in c("LLC")){
+  df1 = df %>% filter(Genes %in% geneSet[[q]])
+  for(i in 1){  
+    png(paste0("~/RStudioProject/PublicBulkRNA/GSE119509.Sanin/Fig/Sanin.M2_PGE2-M2.Heatmap.",q,".png"),width= 3+(length(unique(df1$Genes))*0.3) ,height=4,res=200,units = "in")
+    print(
+      ggplot(df1, aes(y = ID, x = Genes  ) )  + 
+        theme_bw() + Dot_axis90A + ggtitle(paste0("Sanin: PGE2 M2 vs M2 | ",q)) +
+        geom_tile(color = "white",aes(fill =Expression)) +  scale_fill_gradientn(colours = Col.HiLow.9Shades, values = scales::rescale(c(min(df1$Expression),-0.1,0,0.1,max(df1$Expression) )) ) +
+                  theme(plot.title = element_text(size =20, face = "bold",color = "black"),
+                        axis.title = element_blank(), 
+                        axis.text.x = element_text(size =16, face = "bold"),
+                        axis.text.y = element_text(size =16, face = "bold", color = "black"),
+                        strip.text.y.left = element_text(size =18, face = "bold", color = "black",angle = 0),
+                        strip.text.x.top = element_text(size =18, face = "bold", color = "black",angle = 0),
+                        strip.background = element_rect(fill = "white"),
+                        strip.placement = "outside",
+                        legend.position = "bottom"
+                        )
+    )
+    dev.off()
+    }
+}
+#saveRDS(Sanin,"/Users/Siwakorn/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/PublicBulkRNA/GSE119509.Sanin/Sanin.230810.rds" )
+```
+
+
+#===Data to GEO========
+```{r}
+BOC <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC.PTGER4Group.230713.rds")
+tmp = BOC[[]] %>% as_tibble(rownames = "CellBarcode") %>% dplyr::select(CellBarcode, CB.original,Cancer,Histo,Batch.original,Batch.scRNA, Identity.Celltype, Identity.Celltype4, Identity.Subtype1,PTGER4.Group.Celltype)
+write.csv(tmp, "Metadata.scRNA.csv")
+```
