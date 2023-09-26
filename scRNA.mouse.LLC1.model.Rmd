@@ -1,0 +1,820 @@
+---
+title: "LLC scRNA1-2"
+author: "Siwakorn"
+date: '2023-07-13'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Packages
+```{r}
+library(Seurat)
+library(tidyverse)
+library(harmony)
+library(msigdbr)
+library(fgsea)
+```
+
+#Style and instant command
+```{r}
+col_orange =  c("grey","yellow","orange","red")
+
+scale_orange = scale_color_gradientn(colours = c("grey","yellow","orange","red"), values = c(0,0.1,0.5,1))
+scale_ig = scale_color_gradientn(colours = c("grey","#120078","#9d0191","#fd3a69","#fecd1a"), values = c(0,0.1,0.3,0.6,1))
+scale_viridis = scale_color_gradientn(colours = c("grey",c(viridis::viridis(6))[1:5],"#fecd1a" ) )
+Dot_axis90A = theme(axis.text.x =  element_text(size = 15, angle = 90, hjust = 1, vjust = 0.3,color = "black",face ="italic"), axis.text.y = element_text(size = 15,color = "black")) 
+
+Clustering1 <- function(tmp,dim=30,res=0.3,spread =1, dist = 0.5,group = "ID" ){
+      DefaultAssay(tmp) = "RNA"
+      tmp <- NormalizeData(tmp) %>% FindVariableFeatures() %>% ScaleData() %>% RunPCA(verbose = FALSE)
+      tmp <- RunHarmony(tmp, group.by.vars = group)
+      tmp <- RunUMAP(tmp, reduction = "harmony", dims = 1:dim, min.dist = dist, spread = spread )
+      tmp <- FindNeighbors(tmp, reduction = "harmony", dims = 1:dim) %>% FindClusters(resolution = res)
+      return(tmp)
+}
+find <- function(object,gene){
+      rownames(object)[grep(gene,rownames(object) )] %>% sort()
+}
+
+dir = "~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/Fig/230720"
+dir.create(dir)
+PNG <- function(x,w = 6, h = 6.3, r =150){
+      png(filename = paste0(dir,"/",x,".png" ),
+          width = w, 
+          height = h, 
+          units = "in", 
+          res = r)
+}
+```
+
+#geneSet
+```{r}
+geneSet = list()
+geneSet$Markers.Lineage = c("Ptprc","Cd3d","Nkg7","Csf1r","Csf3r","Ms4a1","Cd19","Igkc","Mki67","Col1a1","Kit","Hdc","Col1a1","Col1a2","Ccl8",'Col3a1',"Col18a1","Col4a1")
+geneSet$Markers <- c(
+                   "Ncr1","Klra3","Fcer1g","Gzma","Nkg7","Gzmb","Prf1","Klr8","Il2rb","Xcl1",
+                   "Cd3d","Trac","Trbc1","Trbc2","Cd8a","Cd8b1","Pdcd1","Ifng","Tox","Havcr2","Tcf7",
+                   "Cd4","Icos","Foxp3","Ctla4","CD274","Tnfrsf9","Tnfrsf18",
+                   "Trdc",
+                   "Cd79b","Cd19","Ms4a1","Igkc","Ighd","Ighm",
+                   "Csf1r","C1qa","Adgre1","C1qa","Ccl7","Ccl12","Apoe","Axl",
+                   "Vcan","Il1b","Cxcl1","Spp1","Cxlc2","Cxcl1","Tgfbi", "Arg1","Vegfa","Cd274","Egln3","Gpnmb",
+                   "Irf7","Ifi203","Mx1","Cxcl10","Fcgr1",
+                   "Csf3r","S100a8","S100a9","Cxcl3","Retnlg","Il1r2","Il1f9","Arg2","Cxcr2","Csf3","Hcar2","Cxcl2","Il1b","Isg15",
+                   "H2-Ab1","H2-Eb1","H2-DMb1","H2-Oa","H2-DMb2",
+                   "Xcr1","Itgae","Btla",
+                   "Itgax","Cd74","Cd209a","Ccl17",
+                   "Ccr7","Ccl5","Il12b","Il4i1","Ccl22","Ly75",
+                   "Clec10a","Gpr171","Siglech","Ccr9","Iglc3","Cd300c",
+                   "Mki67","Hist1h3c","Cdca8","Hmgb1"
+                   ) %>% intersect(rownames(LC))
+geneSet$Markers.TNK = c("Cd3e","Cd4","Cd8a","Nkg7","Foxp3","Trdc","Tcrg-C4","Klra5","Tcrg-C1","Il2ra","Mki67","Igkc","Isg15","Csf3r","percent.mt")
+geneSet$Markers.Myeliod = c("Csf1r","Csf3r","Adgre1","C1qa","C1qb","Axl","Mertk","Mrc1","Ptgs2","Ptger2","Vcan","Il1b","Ptgs1","Ptger4","Vegfa","Spp1","Isg15","Ifit1","Mki67",
+                            "Arg1","H2-Ab1","H2-Eb1","H2-Oa","H2-DMb1","H2-DMb2",
+                            "Itgax","Itgam","Clec9a","Xcr1","Lamp3","Ccr7","Clec10a","Siglech",
+                            "Igkc","Malat1")
+
+geneSet[["ETC.selected"]] = c("Ndufa5","Ndufa6","Ndufa7","Ndufa8","Ndufb5","Ndufb6","Ndufb8","Ndufb9","Ndufb10","Ndufb11","Ndufc2","Ndufs5","Ndufv2","Ndufv3",
+                         "Cox4i1","Cox5a","Cox5b","Cox6b1","Cox7a2","Cox7a2l","Cox7b","Cox7c","Cox8a",
+                         "Atp5b","Atp5c1","Atp5d","Atp5e","Atp5g1","Atp5g2","Atp5h","Atp5j","Atp5j2","Atp5k","Atpif1","Atp6v1f","Atp6v1g1")
+geneSet[["Glycolysis"]] = c("Hk1","Hk2","Hk3","Eno1","Eno2","Aldoc","Pgm1","Pgm2","Pgm3","Gale","Galm","Pygl","Slc2a1","Slc2a2","Slc2a3")
+geneSet[["Glycolysis2"]] = c(geneSet[["Glycolysis"]],mfgsea_sets$WP_AEROBIC_GLYCOLYSIS,mfgsea_sets$REACTOME_GLYCOLYSIS,mfgsea_sets$MOOTHA_GLYCOLYSIS) %>% unique() %>% sort()
+geneSet[["Ribosome"]] = c("Rpl10a","Rpl11","Rpl12","Rpl13","Rpl14","Rpl15","Rpl18","Rpl18a","Rpl19","Rpl4","Rpl6","Rpl7","Rpl8","Rplp0","Rps7","Rps8","Rps9","Rps10",
+                           "Rps11","Rps12","Rps13","Rps14","Rpsa",
+                          "Rps3a1","Rps4x","Rps5",
+                          "Rpl21","Rpl22","Rpl22l1","Rpl23","Rpl23a","Rpl24","Rpl26","Rpl27","Rpl27a","Rpl28","Rpl36al",
+                          "Rps15","Rps15a","Rps16","Rps17","Rps18","Rps19","Rps20",
+                          "Rps21","Rps23","Rps24","Rps25","Rps26","Rps27","Rps27a","Rps27l",
+                          "Rpl30","Rpl31","Rpl35","Rpl35a","Rpl36","Rpl37a","Rpl38","Rpl39",
+                          "Rpl10","Rpl5","Rpl7a","Rps3","Rps6","Rpl3","Rps2",
+                          "Rps28","Rps29",
+                          "Rpl7l1","Rpl13a","Rps19bp1","Rpl9-ps6")
+geneSet[["NFKB-Angio"]] = c("Vegfa","Ptgs1","Ptgs2","Il1b","Hif1a","Osm",
+                         "Nfkb1","Nfkb2","Nfkbia","Nfkbid","Nfkbiz","Nr4a1","Nr4a2","Nr4a3","Rela","Relb","Bcl3",
+                         "Ccl2","Ccl3","Ccl5","Ccl8","Cxcl9","Cxcl10") 
+geneSet[["Proteasome"]] = find(Bona,"Psm")
+
+geneSet[["Module9"]] = list(
+  "NFKB-Angio" = c("Vegfa","Ptgs1","Ptgs2","Il1b","Hif1a","Osm",
+                         "Nfkb1","Nfkb2","Nfkbia","Nfkbid","Nfkbiz","Nr4a1","Nr4a2","Nr4a3","Rela","Relb","Bcl3",
+                         "Ccl2","Ccl3","Ccl5","Ccl8","Cxcl9","Cxcl10") ,
+  "Mt-encoded" = c("mt-Atp6","mt-Atp8","mt-Co1","mt-Co2","mt-Co3","mt-Cytb","mt-Nd1","mt-Nd2","mt-Nd3","mt-Nd4"),
+  "Proteosome" = c("Psma2","Psma3","Psma4","Psma5","Psma7","Psmb1","Psmb2","Psmb3","Psmb5","Psmb6","Ubb"),
+  "OXPHOS" = geneSet$ETC.selected,
+  "Ribosome" = c(geneSet$Ribosome),
+  "Isg" = c("Ifi203","Ifi204","Ifi205","Ifi206","Ifi207","Ifi208","Ifi209","Ifi211","Ifi213","Ifi27la2","Ifi35",
+            "Ifi44","Ifi47","Ifih1","Ifit1","Ifit2","Ifit3","Ifitm2","Ifitm3",
+                         "Isg15","Isg20","Irf1","Irf2","Irf7","Irf8","Irf9",
+                         "Irf2bp1","Irf2bp2","Irf2bpl","Irf3","Irf4","Irf5",
+                         "Ifi27","Ifitm1","Ifitm5","Ifitm6")
+)
+```
+
+#Initiation
+```{r}
+library(Seurat)
+library(harmony)
+library(tidyverse)
+options(future.globals.maxSize = 100000 * 1024^2)
+
+Clustering1 <- function(tmp,dim=30,res=0.3,spread =1, dist = 0.5,group = "ID" ){
+      DefaultAssay(tmp) = "RNA"
+      tmp <- NormalizeData(tmp) %>% FindVariableFeatures() %>% ScaleData() %>% RunPCA(verbose = FALSE)
+      tmp <- RunHarmony(tmp, group.by.vars = group)
+      tmp <- RunUMAP(tmp, reduction = "harmony", dims = 1:dim, min.dist = dist, spread = spread )
+      tmp <- FindNeighbors(tmp, reduction = "harmony", dims = 1:dim) %>% FindClusters(resolution = res)
+      return(tmp)
+}
+
+Batch = c(rep("Day6",6),rep("Day1.5",6))
+Condition = c("Control","Control","EP2i","EP4i","EP2iEP4i","EP2iEP4i",
+	      "Control","Control","Control","EP2iEP4i","EP2iEP4i","EP2iEP4i")
+             
+ID =  c("Day6_Control1","Day6_Control2","Day6_EP2i","Day6_EP4i","Day6_EP2iEP4i1","Day6_EP2iEP4i2",
+        "Day1.5_Control1","Day1.5_Control2","Day1.5_Control3","Day1.5_EP2iEP4i1","Day1.5_EP2iEP4i2","Day1.5_EP2iEP4i3")
+
+data.dir = c(
+      "~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/CountMatrix/scRNA1_no1/filtered_feature_bc_matrix/",
+      "~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/CountMatrix/scRNA1_no2/filtered_feature_bc_matrix/",
+      "~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/CountMatrix/scRNA1_no3/filtered_feature_bc_matrix/",
+      "~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/CountMatrix/scRNA1_no4/filtered_feature_bc_matrix/",
+      "~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/CountMatrix/scRNA1_no5/filtered_feature_bc_matrix/",
+      "~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/CountMatrix/scRNA1_no6/filtered_feature_bc_matrix/",
+      "~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/CountMatrix/scRNA2_no1/filtered_feature_bc_matrix/",
+      "~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/CountMatrix/scRNA2_no2/filtered_feature_bc_matrix/",
+      "~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/CountMatrix/scRNA2_no3/filtered_feature_bc_matrix/",
+      "~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/CountMatrix/scRNA2_no4/filtered_feature_bc_matrix/",
+      "~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/CountMatrix/scRNA2_no5/filtered_feature_bc_matrix/",
+      "~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/CountMatrix/scRNA2_no6/filtered_feature_bc_matrix/")
+
+LLC <- list()
+
+for(i in 1:length(data.dir)){
+      print(ID[i])
+      tmp = Read10X(data.dir = data.dir[i]  )
+      tmp1 = rownames(tmp)
+      tmp1 = gsub("mm10___","",tmp1)
+      rownames(tmp) = tmp1
+      LLC[[i]] <- CreateSeuratObject(counts = tmp, project = "LLC1", min.cells = 3, min.features = 0)
+      LLC[[i]][["percent.mt"]] <- PercentageFeatureSet(LLC[[i]], pattern = "^mt-")
+      LLC[[i]]$CB.original = colnames(LLC[[i]])
+      LLC[[i]]$Batch = Batch[i]
+      LLC[[i]]$Condition <- Condition[i]
+      LLC[[i]]$ID <- ID[i]
+      LLC[[i]]$CB.new = paste0("LLC1_",LLC[[i]]$ID,":", colnames(LLC[[i]]) )
+      LLC[[i]]$CB.new = gsub("-1","x",LLC[[i]]$CB.new)
+      LLC[[i]] <- RenameCells(LLC[[i]], new.names = LLC[[i]]$CB.new )
+}
+saveRDS(LLC, file = "~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/LLC.230714.rds")
+#LLC = readRDS("LLC.230714.rds")
+
+tmp <- merge(x = LLC[[1]],
+		       y = LLC[2:length(LLC)],
+		       merge.data = TRUE)
+LLC = tmp 
+tmp=0
+
+#Transfer Identity
+
+scRNA1 <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/scRNA1.SubmittedRevision.220202.rds")
+scRNA2 <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/scRNA2.SubmittedRevision.220202.rds")
+tmp1 = scRNA1[[]] %>% dplyr::select(CB.Original,"ID2","Identity1","Identity1.reduce")
+tmp1$ID = paste0("Day6_",tmp1$ID2)
+tmp1$CB = gsub("-1","x", tmp1$CB.Original)
+tmp1$CB = paste0("LLC1_",tmp1$ID,":",tmp1$CB)
+
+tmp2 = scRNA2[[]] %>% dplyr::select(CB.Original,"ID2","Identity1","Identity1.reduce")
+tmp2$ID = paste0("Day1.5_",tmp2$ID2)
+tmp2$CB = gsub("-1","x", tmp2$CB.Original)
+tmp2$CB = paste0("LLC1_",tmp2$ID,":",tmp2$CB)
+tmp = rbind(tmp1,tmp2) %>% as_tibble() %>% dplyr::select(CB,Identity1,Identity1.reduce)
+length(intersect(tmp$CB,colnames(LLC))) == nrow(tmp)
+tmp3 = data.frame("CB" = setdiff(colnames(LLC),tmp$CB))
+tmp3$Identity1 = "Undefined"
+tmp3$Identity1.reduce = "Undefinded"
+tmp = rbind(tmp,tmp3)
+tmp1 = tmp$Identity1
+names(tmp1) = tmp$CB
+LLC = AddMetaData(LLC,tmp1, "Identity1")
+
+tmp1 = tmp$Identity1.reduce
+names(tmp1) = tmp$CB
+LLC = AddMetaData(LLC,tmp1, "Identity1.reduce")
+LLC$Identity1.reduce %>% summary()
+
+scRNA1 = 0
+scRNA2 = 0
+
+LLC = NormalizeData(LLC) %>% FindVariableFeatures() %>% ScaleData() %>% RunPCA(verbose = FALSE)
+LLC = RunHarmony(LLC, group.by.vars = "ID" )
+LLC <- RunUMAP(LLC, reduction = "harmony", dims = 1:30, min.dist = 1, spread = 1 )
+LLC <- FindNeighbors(LLC, reduction = "harmony", dims = 1:30) %>% FindClusters(resolution = 0.3)
+saveRDS(LLC, file = "~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/LLC.230714.rds")
+LLC = subset(LLC,percent.mt < 10)
+LLC = Clustering1(LLC,dim = 30, spread =1, dist = 1,res =0.5)
+saveRDS(LLC, file = "~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/LLC.QC_Mt10.230714.rds")
+DimPlot(LLC, label =T)
+```
+
+```{r}
+Idents(LLC) = LLC$RNA_snn_res.0.5
+LLC = RenameIdents(LLC,
+                   '16' = "NK",
+                   '12' = "Tcell",
+                   '4' = "TAN",
+                   '0' = "Mono",
+                   '2' = "Mono",
+                   '3' = "Mono",
+                   '5' = "Mono",
+                   '1' = "TAM",
+                   '10' = "TAM_Dividing",
+                   '11' = "TAM_Dividing",
+                   '15' = "cDC1",
+                   '9' = "cDC2",
+                   '14' = "mregDC",
+                   '20' = "pDC",
+                   '21' = "Mast_cell",
+                   '17' = "Fibroblast",
+                   '6' = "LQ",
+                   '7' = "TAM",
+                   '8' = "TAM",
+                   '13' = "TAN",
+                   '18' = "LQ",
+                   '19' = "TAM"             )
+LLC$Identity.Celltype1 =Idents(LLC)
+
+Idents(LLC) = LLC$RNA_snn_res.0.5
+LLC = RenameIdents(LLC,
+                   '16' = "NK",
+                   '12' = "Tcell",
+                   '4' = "TAN",
+                   '0' = "Mono",
+                   '2' = "Mono",
+                   '3' = "Mono",
+                   '5' = "Mono",
+                   '1' = "TAM",
+                   '15' = "cDC1",
+                   '9' = "cDC2",
+                   '14' = "mregDC",
+                   '20' = "pDC",
+                   '10' = "Dividing",
+                   '11' = "Dividing",
+                   '21' = "Mast_cell",
+                   '17' = "Fibroblast",
+                   '6' = "LQ",
+                   '7' = "TAM",
+                   '8' = "TAM",
+                   '13' = "TAN",
+                   '18' = "LQ",
+                   '19' = "TAM"             )
+LLC$Identity.Celltype2 =Idents(LLC)
+saveRDS(LLC, file = "~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/LLC.QC_Mt10.230714.rds")
+
+
+Idents(LLC) = LLC$Identity.Celltype2
+tmp = levels(Idents(LLC)) %>% setdiff(c("Mast_cell","Fibroblast","LQ"))
+LLC = subset(LLC, idents = tmp)
+LLC = Clustering1(LLC, dist = 1)
+Idents(LLC) = LLC$Identity1.reduce
+DimPlot(LLC,label=T)
+#saveRDS(LLC, file = "~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/LLC.QC_Cluster.230714.rds")
+```
+
+
+'0' = "Treg",
+                     '1' = "",
+                     '2' = "",
+                     '3' = "",
+                     '4' = "",
+                     '5' = "",
+                     '6' = "",
+                     '7' = "",
+                     '8' = "",
+                     '9' = "",
+                     '10' = "",
+                     '11' = "",
+                     '12' = "",
+                     '13' = "",
+                     '14' = "",
+                     '15' = "",
+                     '16' = "",
+                     '17' = "",
+                     '18' = ""
+#Transfer identity (Deprecated)
+LC <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/LC.rmLQ.230405.rds")
+tmp1 = LLC[[]] %>% as_tibble(rownames = "CB") %>% dplyr::select(CB, Identity.Celltype2)
+tmp2 = LC[[]] %>% as_tibble(rownames ="CB") %>% filter(CB %in% tmp1$CB) %>% dplyr::select(CB, Identity.Celltype2,Identity.Subtype1)
+tmp2
+tmp1
+colnames(tmp1)[2] = "New.Identity.Celltype2"
+tmp = left_join(tmp1,tmp2)
+table(tmp$New.Identity.Celltype2,tmp$Identity.Celltype2)
+tmp1 = tmp$Identity.Celltype2
+names(tmp1) = tmp$CB
+LLC = AddMetaData(LLC,tmp1, col.name = "Transfer.Identity.Celltype2")
+Idents(LLC) = LLC$Transfer.Identity.Celltype2
+LC = 0
+table(LLC$Identity.Celltype2,LLC$Transfer.Identity.Celltype2)
+
+
+#Reanalysis T cell
+```{r}
+Idents(LLC) = LLC$Identity.Celltype2
+Tcell = subset(LLC, idents = "Tcell")
+tmp = list()
+for(i in c(5,10,15,20,30,40)){
+  Tcell = Clustering1(Tcell,spread=1,dist =1,res=1,dim=i)
+  tmp[[i]] = table(Tcell$seurat_clusters,Tcell$Transfer.Identity.Celltype2)
+  print(DimPlot(Tcell, label =T) + NoLegend())
+  print(FeaturePlot(Tcell, "Cd8a") + scale_orange+NoLegend())
+  Idents(Tcell) = Tcell$Transfer.Identity.Celltype2
+  print(DimPlot(Tcell, label =T) + NoLegend())
+}
+Tcell = Clustering1(Tcell,spread=1,dist =1,res=2,dim=10)
+for(i in c("Ncr1","Cd3d","Cd8a","Cd4","Foxp3","Mki67","Il2ra","Trdc","Trgv2","Csf1r")){
+  if(i == "Cd3d"){
+    Idents(Tcell) = Tcell$seurat_clusters
+    print(DimPlot(Tcell, label =T) + NoLegend())
+    Idents(Tcell) = Tcell$Transfer.Identity.Celltype2
+    print(DimPlot(Tcell, label =T) + NoLegend())
+    }
+   print(FeaturePlot(Tcell,i) + scale_orange)
+}
+Idents(Tcell) = Tcell$seurat_clusters
+for(i in c("Ncr1","Cd3d","Cd8a","Cd4","Foxp3","Mki67","Il2ra","Trdc","Trgv2","Csf1r")){
+  print(VlnPlot(Tcell, i) + NoLegend())
+}
+Tcell = RenameIdents(Tcell, 
+                     '0' = "Treg",
+                     '1' = "NK",
+                     '2' = "T_CD4",
+                     '3' = "Doublet",
+                     '4' = "Dividing",
+                     '5' = "T_GammaDelta",
+                     '6' = "Doublet",
+                     '7' = "Treg",
+                     '8' = "Doublet",
+                     '9' = "NK",
+                     '10' = "T_CD8",
+                     '11' = "T_CD4",
+                     '12' = "Doublet",
+                     '13' = "T_CD8",
+                     '14' = "T_CD4",
+                     '15' = "Doublet",
+                     '16' = "Doublet",
+                     '17' = "Treg",
+                     '18' = "Treg"
+                      )
+Tcell$Identity.Celltype3 = Idents(Tcell)
+DimPlot(Tcell)
+```
+##CD8
+```{r}
+Cd8 = subset(Tcell, idents = "T_CD8")
+Cd8 = Clustering1(Cd8)
+for(i in c("Ncr1","Cd3d","Cd8a","Cd4","Foxp3","Mki67","Il2ra","Trdc","Trgv2","Csf1r")){
+  if(i == "Cd3d"){
+    Idents(Cd8) = Cd8$seurat_clusters
+    print(DimPlot(Cd8, label =T) + NoLegend())
+    Idents(Cd8) = Cd8$Transfer.Identity.Celltype2
+    print(DimPlot(Cd8, label =T) + NoLegend())
+    }
+   print(FeaturePlot(Cd8,i) + scale_orange)
+}
+table(Cd8$seurat_clusters,Cd8$Transfer.Identity.Celltype2)
+Cd8$Identity.Celltype3 = "T_CD8"
+```
+
+##CD4
+```{r}
+Cd4 = subset(Tcell, idents = "T_CD4")
+Cd4 = Clustering1(Cd4,dim = 10,res =2)
+for(i in c("Ncr1","Cd3d","Cd8a","Cd4","Foxp3","Mki67","Il2ra","Trdc","Trgv2","Csf1r")){
+  if(i == "Cd3d"){
+    Idents(Cd4) = Cd4$seurat_clusters
+    print(DimPlot(Cd4, label =T) + NoLegend())
+    Idents(Cd4) = Cd4$Transfer.Identity.Celltype2
+    print(DimPlot(Cd4, label =T) + NoLegend())
+    }
+   print(FeaturePlot(Cd4,i) + scale_orange)
+}
+Cd4$Identity.Celltype3 = "T_CD4"
+```
+
+##T_gd
+```{r}
+Tgd = subset(Tcell, idents = "T_GammaDelta")
+Tgd = Clustering1(Tgd,dim=10, res = 1)
+for(i in c("Ncr1","Cd3d","Cd8a","Cd4","Foxp3","Mki67","Il2ra","Trdc","Trgv2","Csf1r")){
+  if(i == "Cd3d"){
+    Idents(Tgd) = Tgd$seurat_clusters
+    print(DimPlot(Tgd, label =T) + NoLegend())
+    Idents(Tgd) = Tgd$Transfer.Identity.Celltype2
+    print(DimPlot(Tgd, label =T) + NoLegend())
+    }
+   print(FeaturePlot(Tgd,i) + scale_orange)
+}
+Tgd$Identity.Celltype3 = "T_GammaDelta"
+```
+
+##Treg
+```{r}
+Treg = subset(Tcell, idents = "Treg")
+Treg = Clustering1(Treg,dim=10, res = 1)
+for(i in c("Ncr1","Cd3d","Cd8a","Cd4","Foxp3","Mki67","Il2ra","Trdc","Trgv2","Csf1r")){
+  if(i == "Cd3d"){
+    Idents(Treg) = Treg$seurat_clusters
+    print(DimPlot(Treg, label =T) + NoLegend())
+    Idents(Treg) = Treg$Transfer.Identity.Celltype2
+    print(DimPlot(Treg, label =T) + NoLegend())
+    }
+   print(FeaturePlot(Treg,i) + scale_orange)
+}
+Treg$Identity.Celltype3 = "Treg"
+```
+##Div
+```{r}
+Div = subset(Tcell, idents = "Dividing")
+Div = Clustering1(Div, dim =10, res=2)
+for(i in c("Ncr1","Cd3d","Cd8a","Cd4","Foxp3","Mki67","Il2ra","Trdc","Trgv2","Csf1r")){
+  if(i == "Cd3d"){
+    Idents(Div ) = Div$seurat_clusters
+    print(DimPlot(Div , label =T) + NoLegend())
+    Idents(Div ) = Div$Transfer.Identity.Celltype2
+    print(DimPlot(Div , label =T) )
+    }
+   print(FeaturePlot(Div ,i) + scale_orange)
+}
+table(Div$seurat_clusters,Div$Transfer.Identity.Celltype2)
+Idents(Div ) = Div$seurat_clusters
+Div = RenameIdents(Div,
+                   '0' = "T_CD8",
+                   '1' = "NK",
+                   '2' = "T_CD8",
+                   '3' = "Treg",
+                   '4' = "Treg")
+Div$Identity.Celltype3 = Idents(Div)
+```
+
+##NK
+```{r}
+NK = subset(Tcell,idents = "NK")
+NK = Clustering1(NK, dim =30, res = 2)
+for(i in c("Ncr1","Cd3d","Cd8a","Cd4","Foxp3","Mki67","Il2ra","Trdc","Trgv2","Csf1r")){
+  if(i == "Cd3d"){
+    Idents(NK ) = NK$seurat_clusters
+    print(DimPlot(NK , label =T) + NoLegend())
+    Idents(NK ) = NK$Transfer.Identity.Celltype2
+    print(DimPlot(NK , label =T) )
+    }
+   print(FeaturePlot(NK ,i) + scale_orange)
+}
+NK = RenameIdents(NK,
+                  '0' = "T_GammaDelta",
+                  '1' = "T_GammaDelta",
+                  '2' = "T_CD8",
+                  '3' = "T_GammaDelta",
+                  '4' = "T_CD8",
+                  '5' = "T_GammaDelta",
+                  '6' = "T_GammaDelta",
+                  '7' = "T_GammaDelta",
+                  '8' = "T_CD8",
+                  '9' = "T_GammaDelta",
+                  '10' = "T_CD8",
+                  '11' = "T_GammaDelta")
+
+NK$Identity.Celltype3 = Idents(NK)
+NK$Identity.Celltype3 = "T_GammaDelta"
+tmp = subset(NK, idents = "T_CD8")
+
+```
+
+##DB
+```{r}
+DB = subset(Tcell,idents = "Doublet")
+DB$Identity.Celltype3 = "Doublet"
+```
+
+##Annotation
+```{r}
+tmp1 = Cd8[[]] %>% as_tibble(rownames = "CB") %>% dplyr::select(CB, Identity.Celltype3)
+tmp2 = Cd4[[]] %>% as_tibble(rownames = "CB") %>% dplyr::select(CB, Identity.Celltype3)
+tmp3 = Tgd[[]] %>% as_tibble(rownames = "CB") %>% dplyr::select(CB, Identity.Celltype3)
+tmp4 = Treg[[]] %>% as_tibble(rownames = "CB") %>% dplyr::select(CB, Identity.Celltype3)
+tmp5 = Div[[]] %>% as_tibble(rownames = "CB") %>% dplyr::select(CB, Identity.Celltype3)
+tmp6 = DB[[]] %>% as_tibble(rownames = "CB") %>% dplyr::select(CB, Identity.Celltype3)
+tmp7 = NK[[]] %>% as_tibble(rownames = "CB") %>% dplyr::select(CB, Identity.Celltype3) 
+tmp = rbind(tmp1,tmp2,tmp3,tmp4,tmp5,tmp6,tmp7)
+ncol(Tcell) == nrow(tmp)
+tmp1 = tmp$Identity.Celltype3 
+names(tmp1) = tmp$CB
+Tcell = AddMetaData(Tcell, tmp1, "Identity.Celltype3")
+Tcell$Identity.Celltype3 = factor(Tcell$Identity.Celltype3, levels = c("NK","T_CD8","T_CD4","T_GammaDelta","Treg","Doublet"))
+Idents(Tcell) = Tcell$Identity.Celltype3
+
+LLC = readRDS(file = "~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/LLC.QC_Cluster.230714.rds")
+tmp1 = Tcell[[]] %>% as_tibble(rownames = "CB" ) %>% dplyr::select(CB,Identity.Celltype3)
+LLC$Identity.Celltype3= LLC$Identity.Celltype2
+tmp2 = LLC[[]]  %>% as_tibble(rownames = "CB" ) %>% dplyr::select(CB,Identity.Celltype3) %>% filter(!CB %in% tmp1$CB)
+tmp = rbind(tmp1,tmp2)
+nrow(tmp) == ncol(LLC)
+tmp1 = tmp$Identity.Celltype3
+names(tmp1) = tmp$CB
+LLC = AddMetaData(LLC, tmp1, col.name = "Identity.Celltype3")
+
+Idents(LLC) = LLC$Identity.Celltype3
+saveRDS(LLC, "~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/LLC.Identity.Celltype3.230719.rds")
+
+LLC = readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/LLC.Identity.Celltype3.230719.rds")
+tmp = unique(LLC$Identity.Celltype3) %>% setdiff("Doublet")
+LLC = subset(LLC, idents = tmp)
+LLC = Clustering1(LLC,spread = 0.7, dist = 1)
+saveRDS(LLC, "~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/LLC.Identity.Celltype3.QC.230720.rds")
+LLC <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/LLC.Identity.Celltype3.QC.230720.rds")
+LLC = Clustering1(LLC, dist = 1)
+saveRDS(LLC, "~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/LLC.ReShape.230730.rds")
+```
+
+
+
+```{r}
+tmp = subset(LLC, idents = "T_CD8")
+tmp1 = subset(tmp,Batch == "Day1.5") 
+table(Idents(tmp1),tmp1$Condition)
+tmp2 = subset(tmp,Batch == "Day6") 
+table(Idents(tmp2),tmp2$Condition)
+Idents(tmp1) = tmp1$Condition
+tmp1 = FindMarkers(tmp1, ident.1 = "EP2iEP4i", ident.2 = "Control", logfc.threshold = 0.01, min.pct = 0.01, min.cells.group = 2,min.cells.feature = 2) %>% arrange(avg_log2FC)
+tmp3 = fgsea(mfgsea_sets, nperm = 1000,
+      stats = deframe(dplyr::select(as_tibble(tmp1,rownames = "Genes"),Genes,avg_log2FC)) ) %>% arrange(desc(NES) )
+
+
+Idents(tmp2) = tmp2$Condition
+tmp2 = FindMarkers(tmp2, ident.1 = "EP2iEP4i", ident.2 = "Control", logfc.threshold = 0.01, min.pct = 0.01, min.cells.group = 2,min.cells.feature = 2) %>% arrange(avg_log2FC)
+tmp4 = fgsea(mfgsea_sets, nperm = 1000,
+      stats = deframe(dplyr::select(as_tibble(tmp2, rownames = "Genes"),Genes,avg_log2FC)) ) %>% arrange(desc(NES) )
+
+tmp3 %>% filter(pathway %in% selected.pathway)
+tmp4 %>% filter(pathway %in% selected.pathway)
+
+selected.pathway = c("HALLMARK_IL2_STAT5_SIGNALING","MARZEC_IL2_SIGNALING_UP","BIOCARTA_IL2_PATHWAY","PID_IL2_1PATHWAY")
+
+tmp1["Il2ra",]
+tmp2["Il2ra",]
+
+plotEnrichment(mfgsea_sets[["HALLMARK_IL2_STAT5_SIGNALING"]],
+              deframe(dplyr::select(as_tibble(tmp1,rownames = "Genes"),Genes,avg_log2FC)) ,
+              0.5,0.3  )
+plotEnrichment(mfgsea_sets[["HALLMARK_IL2_STAT5_SIGNALING"]],
+              deframe(dplyr::select(as_tibble(tmp2,rownames = "Genes"),Genes,avg_log2FC)) ,
+              0.5,0.3  )
+
+```
+
+#DE Analysis
+```{r}
+#DE.Identity1.reduce.r
+library(Seurat)
+library(harmony)
+library(tidyverse)
+options(future.globals.maxSize = 100000 * 1024^2)
+
+LLC = readRDS("//home/siwakorn/LLC/LLC.QC_Cluster.230714.rds")
+
+DE = list()
+DE1 = list()
+DE2 = list()
+Idents(LLC) = LLC$Identity1.reduce
+
+for(i in levels(Idents(LLC))){
+      tryCatch({
+         print(i)
+	 tmp = subset(LLC, idents = i)
+	 Idents(tmp) = tmp$Batch
+         tmp1 = subset(tmp, idents = "Day6" )
+         tmp2 = subset(tmp, idents = "Day1.5" )
+   	 Idents(tmp1) = tmp1$Condition
+         Idents(tmp2) = tmp2$Condition
+  	 DE1[[i]] = FindMarkers(tmp1, ident.1 = "EP2iEP4i", ident.2 = "Control", logfc.threshold = 0.01, min.pct = 0.01) %>% arrange(avg_log2FC)
+         DE2[[i]] = FindMarkers(tmp2, ident.1 = "EP2iEP4i", ident.2 = "Control", logfc.threshold = 0.01, min.pct = 0.01) %>% arrange(avg_log2FC)
+      },error = function(e){print(e)})
+}
+DE$Day6 = DE1
+DE$Day1.5 = DE2
+saveRDS(DE,"//home/siwakorn/LLC/DE.LLC.Identity1.reduce.230714.rds")
+
+
+#DE.Celltype2.r
+library(Seurat)
+library(harmony)
+library(tidyverse)
+options(future.globals.maxSize = 100000 * 1024^2)
+
+LLC = readRDS("//home/siwakorn/LLC/LLC.QC_Cluster.230714.rds")
+
+DE = list()
+DE1 = list()
+DE2 = list()
+Idents(LLC) = LLC$Identity.Celltype2
+
+for(i in levels(Idents(LLC))){
+      tryCatch({
+         print(i)
+	 tmp = subset(LLC, idents = i)
+	 Idents(tmp) = tmp$Batch
+         tmp1 = subset(tmp, idents = "Day6" )
+         tmp2 = subset(tmp, idents = "Day1.5" )
+   	 Idents(tmp1) = tmp1$Condition
+         Idents(tmp2) = tmp2$Condition
+  	 DE1[[i]] = FindMarkers(tmp1, ident.1 = "EP2iEP4i", ident.2 = "Control", logfc.threshold = 0.01, min.pct = 0.01) %>% arrange(avg_log2FC)
+         DE2[[i]] = FindMarkers(tmp2, ident.1 = "EP2iEP4i", ident.2 = "Control", logfc.threshold = 0.01, min.pct = 0.01) %>% arrange(avg_log2FC)
+      },error = function(e){print(e)})
+}
+DE$Day6 = DE1
+DE$Day1.5 = DE2
+saveRDS(DE,"//home/siwakorn/LLC/DE.LLC.Celltype2.230714.rds")
+
+
+#DE.Celltype3.r
+library(Seurat)
+library(harmony)
+library(tidyverse)
+options(future.globals.maxSize = 100000 * 1024^2)
+
+LLC = readRDS("//home/siwakorn/LLC/LLC.Identity.Celltype3.230719.rds")
+
+DE = list()
+DE1 = list()
+DE2 = list()
+Idents(LLC) = LLC$Identity.Celltype3
+for(i in levels(Idents(LLC))){
+      tryCatch({
+         print(i)
+	 tmp = subset(LLC, idents = i)
+	 Idents(tmp) = tmp$Batch
+         tmp1 = subset(tmp, idents = "Day6" )
+         tmp2 = subset(tmp, idents = "Day1.5" )
+   	 Idents(tmp1) = tmp1$Condition
+         Idents(tmp2) = tmp2$Condition
+  	 DE1[[i]] = FindMarkers(tmp1, ident.1 = "EP2iEP4i", ident.2 = "Control", logfc.threshold = 0.01, min.pct = 0.01) %>% arrange(avg_log2FC)
+         DE2[[i]] = FindMarkers(tmp2, ident.1 = "EP2iEP4i", ident.2 = "Control", logfc.threshold = 0.01, min.pct = 0.01) %>% arrange(avg_log2FC)
+      },error = function(e){print(e)})
+}
+DE$Day6 = DE1
+DE$Day1.5 = DE2
+saveRDS(DE,"//home/siwakorn/LLC/DE.LLC.Celltype3.230719.rds")
+```
+
+##Convert to df
+##Celltype2
+```{r}
+DE <- readRDS("~/RStudioProject/LLC/DE.LLC.Celltype2.230714.rds")
+
+selected.cluster = setdiff(names(DE$Day6),"Doublet")
+
+df = data.frame()
+for(t in  c("Day1.5","Day6")){
+  for(i in  selected.cluster ){
+    tmp = DE[[t]][[i]] %>% as_tibble(rownames = "Genes")
+    if(!is.null(tmp)){
+      tmp$Dataset = t
+      tmp$Cluster = i
+      tmp$Condition = "EP2iEP4i-Control"
+      df = rbind(df,tmp) }
+  }
+}
+df$Dataset = factor(df$Dataset,levels = c("Day1.5","Day6"))
+df$Cluster = factor(df$Cluster, levels = selected.cluster )
+LLCDF$df.DE.Celltype2 = df
+
+```
+##Celltype3
+```{r}
+DE = readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/DE.LLC.Celltype3.230719.rds")
+
+df = data.frame()
+for(t in names(DE)){
+  for(i in names(DE[[t]])){
+    tmp = DE[[t]][[i]] %>% as_tibble(rownames = "Genes")
+    if(!is.null(tmp)){
+      tmp$Dataset = t
+      tmp$Cluster = i
+      tmp$Condition = "EP2iEP4i-Control"
+      df = rbind(df,tmp) }
+  }
+}
+df$Dataset = factor(df$Dataset,levels = c("Day1.5","Day6"))
+df$Cluster = factor(df$Cluster, levels = names(DE$Day6))
+LLCDF$df.DE.Celltype3 = df
+```
+
+
+
+
+#GSEA
+##Celltype2
+```{r}
+DE <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/DE.LLC.Celltype2.230714.rds")
+GSEA = list("Day1.5" = list(),"Day6" = list())
+GSEA_H = list("Day1.5" = list(),"Day6" = list())
+for(t in names(DE)){
+  for(i in names(DE[[t]])){
+    df1 = DE[[t]][[i]] %>% as_tibble(rownames = "Genes") %>% dplyr::select(Genes, avg_log2FC) %>% arrange(avg_log2FC)
+    ranks<- deframe(df1)
+    GSEA[[t]][[i]] <- fgsea(mfgsea_sets, stats = ranks, nperm = 50000) %>% arrange(desc(NES) )
+    GSEA_H[[t]][[i]] <- fgsea(mfgsea_sets_H, stats = ranks, nperm = 50000) %>% arrange(desc(NES) )
+  }
+}
+DE$GSEA = GSEA
+DE$GSEA_H = GSEA_H
+
+GSEA = list("Day1.5" = list(),"Day6" = list())
+GSEA_H = list("Day1.5" = list(),"Day6" = list())
+for(t in c("Day1.5","Day6") ){
+  for(i in names(DE[[t]])){
+    df1 = DE[[t]][[i]] %>% as_tibble(rownames = "Genes") %>% dplyr::select(Genes, avg_log2FC) %>% arrange(avg_log2FC) %>% deframe()
+    GSEA[[t]][[i]] <- fgseaMultilevel(mfgsea_sets, stats = df1) %>% arrange(desc(NES) )
+    GSEA_H[[t]][[i]] <- fgseaMultilevel(mfgsea_sets_H , stats = df1 ) %>% arrange(desc(NES) )
+  }
+}
+DE$GSEA2 = GSEA
+DE$GSEA_H2 = GSEA_H
+saveRDS(DE, "~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/DE.LLC.Celltype2.GSEA.230906.rds")
+```
+
+##Celltype3
+```{r}
+DE <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/DE.LLC.Celltype3.230719.rds")
+
+###GSEA
+GSEA = list("Day1.5" = list(),"Day6" = list())
+for(t in names(DE)){
+  for(i in names(DE[[t]])){
+    df1 = DE[[t]][[i]] %>% as_tibble(rownames = "Genes") %>% dplyr::select(Genes, avg_log2FC) %>% arrange(avg_log2FC)
+    ranks<- deframe(df1)
+    GSEA[[t]][[i]] <- fgsea(mfgsea_sets, stats = ranks, nperm = 50000) %>% arrange(desc(NES) )
+  }
+}
+saveRDS(GSEA, "~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/GSEA.LLC.Celltype3.nperm50k.230823.rds")
+```
+
+##Celltype3 by fgseaMultilevel
+```{r}
+DE <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/DE.LLC.Celltype3.230719.rds")
+GSEA = list("Day1.5" = list(),"Day6" = list())
+GSEA_H = list("Day1.5" = list(),"Day6" = list())
+for(t in c("Day1.5","Day6") ){
+  for(i in names(DE[[t]])){
+    df1 = DE[[t]][[i]] %>% as_tibble(rownames = "Genes") %>% dplyr::select(Genes, avg_log2FC) %>% arrange(avg_log2FC) %>% deframe()
+    GSEA[[t]][[i]] <- fgseaMultilevel(mfgsea_sets, stats = df1) %>% arrange(desc(NES) )
+    GSEA_H[[t]][[i]] <- fgseaMultilevel(mfgsea_sets_H , stats = df1 ) %>% arrange(desc(NES) )
+    
+  }
+}
+DE$GSEA_v2 = GSEA
+DE$GSEA_H_v2 = GSEA_H
+GSEAv2 = list("All" = GSEA, "H" = GSEA_H)
+saveRDS(GSEAv2, "~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/GSEA.LLC.Celltype3.Multilevel.230903.rds")
+GSEAv2 =readRDS( "~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/GSEA.LLC.Celltype3.Multilevel.230903.rds")
+```
+
+##Celltype3 with p value
+```{r}
+DE <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/DE.LLC.Celltype3.230719.rds")
+###GSEA
+GSEA = list("Day1.5" = list(),"Day6" = list())
+GSEA_p05 = list("Day1.5" = list(),"Day6" = list())
+GSEA_padj = list("Day1.5" = list(),"Day6" = list())
+GSEA_H = list("Day1.5" = list(),"Day6" = list())
+GSEA_H_p05 = list("Day1.5" = list(),"Day6" = list())
+GSEA_H_padj = list("Day1.5" = list(),"Day6" = list())
+for(t in c("Day1.5","Day6") ){
+  for(i in names(DE[[t]]) ) {
+    df1 = DE[[t]][[i]] %>% as_tibble(rownames = "Genes") %>% dplyr::select(Genes, avg_log2FC) %>% arrange(avg_log2FC)
+    GSEA[[t]][[i]] <- fgsea(mfgsea_sets, stats = deframe(df1), nperm = 50000) %>% arrange(desc(NES) )
+    GSEA_H[[t]][[i]] <- fgsea(mfgsea_sets_H , stats = deframe(df1), nperm = 50000) %>% arrange(desc(NES) )
+        
+    df1 = DE[[t]][[i]] %>% as_tibble(rownames = "Genes") %>% filter(p_val < 0.05) %>% dplyr::select(Genes, avg_log2FC) %>% arrange(avg_log2FC)
+    GSEA_p05[[t]][[i]] <- fgsea(mfgsea_sets, stats = deframe(df1), nperm = 50000) %>% arrange(desc(NES) )
+    GSEA_H_p05[[t]][[i]] <- fgsea(mfgsea_sets_H , stats = deframe(df1), nperm = 50000) %>% arrange(desc(NES) )
+    
+    df1 = DE[[t]][[i]] %>% as_tibble(rownames = "Genes") %>% filter(p_val_adj < 0.05) %>% dplyr::select(Genes, avg_log2FC) %>% arrange(avg_log2FC)
+    GSEA_padj[[t]][[i]] <- fgsea(mfgsea_sets, stats = deframe(df1), nperm = 50000) %>% arrange(desc(NES) )
+    GSEA_H_padj[[t]][[i]] <- fgsea(mfgsea_sets_H , stats = deframe(df1), nperm = 50000) %>% arrange(desc(NES) )
+  }
+}
+DE$GSEA = GSEA
+DE$GSEA_H = GSEA_H
+DE$GSEA_p05 = GSEA_p05
+DE$GSEA_H_p05 = GSEA_H_p05
+DE$GSEA_padj = GSEA_padj
+DE$GSEA_H_padj = GSEA_H_padj
+DE$GSEA2 = GSEAv2$All
+DE$GSEA_H2 = GSEAv2$H
+
+saveRDS(DE, "~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/DE.LLC.Celltype3.pval.nperm50k.230903.rds")
+```
+
