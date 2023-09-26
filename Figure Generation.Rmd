@@ -1,0 +1,3552 @@
+---
+title: "Figure generation"
+author: "Siwakorn"
+date: "2023-09-25"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+#-----------------------------------------
+#Figure 1 (Overview)-------
+##Fig 1A UMAP
+```{r}
+BOC <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC.PTGER4Group.230713.rds")
+BOC = readRDS("//home/siwakorn/Human/RDS/BOC.PTGER4Group.230713.rds")
+Idents(BOC) = BOC$Identity.Celltype4R
+for(i in c(1)){
+  for(j in c(1) ) {
+      PNG(paste0("BOC.CD45.All.DM"))
+      print(DimPlot(BOC,label =F, pt.size = 0.1,
+                    cols = BOCDF$cols$Celltype4
+                    ) +NoLegend())
+      dev.off()
+      }
+  }
+
+for(i in 1){
+      PDF("Fig.1A.BOC.CD45.All.DM1",r=500,w=8,h=8)
+      print(DimPlot(BOC,label =F, pt.size = 0.1,
+                    cols = BOCDF$cols$Celltype4
+                    ) + NoLegend())
+      dev.off()
+      PDF("Fig.1A.BOC.CD45.All.DM2", w=9,h=6)
+      print(DimPlot(BOC,label =T, 
+                    cols = BOCDF$cols$Celltype4
+                    ) ) 
+      dev.off()
+}
+```
+
+##Fig 1B Signature Celltype4
+```{r}
+BOCDF$AllMarkers = list()
+Idents(BOC) = BOC$Identity.Celltype2
+BOCDF$AllMarkers$Celltype2 = FindAllMarkers(BOC,max.cells.per.ident = 100)
+
+Idents(BOC) = BOC$Identity.Celltype3
+BOCDF$AllMarkers$Celltype3 = FindAllMarkers(BOC,max.cells.per.ident = 100)
+
+Idents(BOC) = BOC$Identity.Celltype4
+BOCDF$AllMarkers$Celltype4 = FindAllMarkers(BOC,max.cells.per.ident = 100)
+
+Idents(CD8) = CD8$Identity.Subtype1
+BOCDF$AllMarkers$CD8.Subtype1 = FindAllMarkers(CD8, max.cells.per.ident = 100)
+
+Idents(TIM) = TIM$Identity.Subtype1
+BOCDF$AllMarkers$TIM = FindAllMarkers(TIM, max.cells.per.ident = 200)
+BOCDF$AllMarkers$Celltype4
+tmp1 = BOCDF$AllMarkers$Celltype4 %>% group_by(cluster) %>% top_n(n=30, wt=avg_log2FC)
+write.csv(tmp1, "AllMarker.Celltype4.230819.csv")
+
+tmp1 = c("NCAM1","KLRD1","KLRC3","CD8A","GZMH","GZMK","CD4","RORA","IL7R","FOXP3","CTLA4","IL2RA","CSF1R","CSF3R","IL1B","HLA-DRA","HLA-DQB1","CD86","MS4A1","CD79A","TCF4","JCHAIN","IGHG1","IGKC","MKI67","STMN1","HMGB1")
+Idents(BOC) = BOC$Identity.Celltype4R
+df = DotPlot(BOC,features = unique(tmp1) )$data
+for(i in 1){
+  PDF("Fig.1B.BOC.Signature.Celltype4", w=1.4,h=3.7,r=500)
+  print(ggplot(df, aes(y = fct_rev(features.plot), x = id, fill = avg.exp.scaled)) + 
+          geom_tile(color = "white")+ scale_fill_gradientn(colours = col_viridis) + theme_classic()+
+          scale_y_discrete(position = "right")+
+          theme(text = element_text(family="Arial"),
+                axis.text.x = element_text(angle = 90,hjust = 1,vjust=0.3, color ="black",size = 6),
+                axis.text.y = element_text(face = "italic",color = "black",size=6),
+                axis.title = element_blank(),
+                legend.position = "bottom" ) )
+  dev.off()
+}
+```
+
+
+##Fig 1C Percentage
+```{r}
+tmp1 = table(BOC$Identity.Celltype4R, BOC$Batch.scRNA )
+apply(tmp1,1,function(x) x/colSums(tmp1)*100) %>% t() %>% as_tibble(rownames = "Cluster")
+tmp1 = apply(tmp1,1,function(x) x/colSums(tmp1)*100) %>% t() %>% as_tibble(rownames = "Cluster") %>% gather(key = "ID", value = "Pct", -Cluster)
+tmp1$Cluster =factor(tmp1$Cluster, levels = levels(BOC$Identity.Celltype4R) )
+tmp1 = filter(tmp1, !Cluster %in% c("LQ","Minor"))
+tmp1$Cancer = NA
+tmp1$Cancer[grep("BRCA",tmp1$ID)] = "BRCA"
+tmp1$Cancer[grep("CRC",tmp1$ID)] = "CRC"
+tmp1$Cancer[grep("OVCA",tmp1$ID)] = "OVCA"
+
+tmp2 = table(BOC$Identity.Celltype4R, BOC$Cancer)
+tmp2 = apply(tmp2,1,function(x) x/colSums(tmp2)*100) %>% t() %>% as_tibble(rownames = "Cluster") %>% gather(key = "Cancer", value = "Pct", -Cluster)
+tmp2$Cluster =factor(tmp2$Cluster, levels = levels(BOC$Identity.Celltype4R) )
+tmp2 = filter(tmp2, !Cluster %in% c("LQ","Minor"))
+tmp2$ID = tmp2$Cancer
+tmp2$Cancer = "All"
+tmp= rbind(tmp1,tmp2)
+
+for(i in 1){
+      PDF("Fig.1C.BOC.Fraction.Identity.Celltype4R.ID", w=3.2,h=3.2)
+      print(
+            ggplot(tmp,aes(x = ID ,y = Pct,fill = Cluster )) +
+                  geom_bar(stat="identity")  +
+                  scale_fill_manual(values= BOCDF$cols$Celltype4) + 
+                  theme_classic()+ 
+                  facet_grid(.~ Cancer, scales = "free", space="free", switch = "y")+
+                  theme(axis.text.x = element_text(family="Arial",color = "black", size = 6, angle = 90, hjust =1,vjust=0.3),
+                        axis.text.y = element_text(family="Arial",color = "black",size =6),
+                        legend.position = "bottom",
+                        axis.title = element_blank(),
+                        strip.background = element_rect(fill = "black"),
+                        strip.text.x.top = element_text(family="Arial",color = "white",size=6)
+                        ) #+ NoLegend()
+      )
+      dev.off()
+}
+
+
+```
+
+
+##Fig 1D PGE2 plot
+```{r}
+for(i in GeneSet$PGE2B  ){
+  PNG(paste0("Fig.1D.BOC.FP.V1.or3.",i),h=5,w=5,r=500)
+  print(
+    FeaturePlot(BOC, i,pt.size = 0.03, cols = col_orange3,raster = F) +
+      theme(plot.title = element_blank(),
+            axis.title = element_text(size =15))+
+      NoLegend()
+        )
+  dev.off()
+ }
+for(i in "PTGER4"  ){
+  PDF(paste0("Fig.1D.BOC.FP.V1.or3.Legend.",i),h=5,w=5.5)
+  print(
+    FeaturePlot(BOC, i,pt.size = 0.03, cols = col_orange3,raster = F) +
+      theme(plot.title = element_blank(),
+            axis.title = element_text(size =15))
+        )
+  dev.off()
+ }
+```
+
+
+##Fig 1E pct.exp PG gens
+```{r}
+Idents(BOC) = BOC$Identity.Celltype4R
+tmp = DotPlot(BOC, features = GeneSet$PGE2B)$data
+tmp$pct.exp.cat = (floor(tmp$pct.exp/10)*10) 
+tmp$pct.exp.cat = gsub("^0","<10%",tmp$pct.exp.cat,  perl = T)
+tmp$pct.exp.cat = gsub("^10","10-20%",tmp$pct.exp.cat,  perl = T)
+tmp$pct.exp.cat = gsub("^20","20-30%",tmp$pct.exp.cat,  perl = T)
+tmp$pct.exp.cat = gsub("^30","30-40%",tmp$pct.exp.cat,  perl = T)
+tmp$pct.exp.cat = gsub("^40","40-50%",tmp$pct.exp.cat,  perl = T)
+tmp$pct.exp.cat = gsub("^50","50-60%",tmp$pct.exp.cat,  perl = T)
+tmp$pct.exp.cat = factor(tmp$pct.exp.cat, levels = sort(unique(tmp$pct.exp.cat)) )
+
+for(i in 1){
+  PDF(paste0("Fig.1e.BOC.DP.PctExp.PGE2"),w = 1.8,h=2.3,r=800)
+  print(
+    ggplot(tmp, aes(x = id, y = fct_rev(features.plot)))+
+      geom_point(colour = "black",pch = 21,aes(size = pct.exp.cat, fill = pct.exp.cat) )+
+      scale_fill_manual(values= col_BlueRed2 ) +
+      scale_size_manual(values = seq(1,6,0.5))+
+      scale_y_discrete(position = "right")+
+      theme_classic()+
+      theme(axis.text.y = element_text(family = "Arial", size = 6,color = "black",face = "italic"),
+            axis.title = element_blank(),
+            axis.text.x = element_text(family = "Arial", size = 6,color = "black",angle = 90, hjust =1,vjust =0.3), 
+            legend.position = "bottom"
+            )
+  )
+  dev.off()
+}
+
+for(i in 1){
+  PDF(paste0("Fig.1e.BOC.DP.PctExp.PGE2.Flip"),w = 1.7,h=2.6,r=800)
+  print(
+    ggplot(tmp, aes(y = fct_rev(id), x = features.plot))+
+      geom_point(colour = "black",pch = 21,aes(size = pct.exp.cat, fill = pct.exp.cat) )+
+      scale_fill_manual(values= col_BlueRed2 ) +
+      scale_size_manual(values = seq(1,6,0.5))+
+      scale_y_discrete(position = "right")+
+      theme_classic()+
+      theme(axis.text.y = element_text(family = "Arial", size = 6,color = "black" ),
+            axis.title = element_blank(),
+            axis.text.x = element_text(family = "Arial", size = 6,color = "black",face = "italic",
+                                       angle = 90, hjust =1,vjust =0.3), 
+            legend.position = "bottom"
+            )
+  )
+  dev.off()
+}
+
+```
+
+##Supplement Fig 1D FP plot (enhaced version)
+```{r}
+
+tmp = FetchData(BOC,vars = c("UMAP_1","UMAP_2",GeneSet$PGE2))
+for(i in GeneSet$PGE2){
+  tmp$Expression = tmp[,i]
+  tmp1 = filter(tmp, Expression > 0)
+  tmp2 = filter(tmp, Expression == 0)
+  tmp3 = rbind(tmp2,tmp1)
+  PNG(paste0("Fig.1D.BOC.FP.Enhance.NoTitle.",i),w = 5,h=5,r=300)
+  print(
+    ggplot(tmp3, aes(x = UMAP_1, y = UMAP_2, color = Expression))+
+      geom_point(size = 0.2)+
+      scale_orange+
+      theme_classic()+ 
+      ggtitle(i)+
+      theme(plot.title = element_blank(),
+            axis.title = element_text(size =15))+
+      NoLegend()
+  )
+  dev.off()
+}
+
+tmp = FetchData(BOC,vars = c("UMAP_1","UMAP_2",GeneSet$PGE2))
+for(i in GeneSet$PGE2[9]){
+  tmp$Expression = tmp[,i]
+  PNG(paste0("Fig.1D.BOC.FP.V3.pt0.7.alpha1.or4g.NoTitle.",i),w = 10,h=10,r=300)
+  print(
+    ggplot(tmp, aes(x = UMAP_1, y = UMAP_2, color = Expression))+
+      geom_point(size = 0.7,alpha=1)+
+      scale_color_gradientn(colours = col_orange4, values = c(0,0.05,0.1,0.3,0.4,1))+
+      theme_classic()+ 
+      ggtitle(i)+
+      theme(plot.title = element_blank(),
+            axis.title = element_text(size =15))+
+      NoLegend()
+  )
+  dev.off()
+}
+```
+
+##Supplement PTGER4 Group expression
+```{r}
+tmp = subset(BOC, Identity.Celltype2 == "T_CD8") %>% subset(Batch.scRNA == "scBRCA1")
+Idents(tmp) = tmp$PTGER4.Group.Celltype2
+for(i in 1){
+  PNG("BOC.CD45.PTGER4Group.DM.CD8.scBRCA1", w= 8, h =7)
+  print(DimPlot(tmp, cols = c("grey","dodgerblue4","orange","darkred")))
+  dev.off()
+  PNG("BOC.CD45.PTGER4Group.VP.CD8.scBRCA1", w= 3, h =8)
+  print(VlnPlot(tmp, "PTGER4", pt.size = 1,cols =  c("grey","dodgerblue4","orange","darkred") ) + NoLegend() + theme(axis.title = element_blank() )+ Dot_axis90B  )
+  dev.off()
+}
+
+
+tmp = subset(BOC, Identity.Celltype2 == "T_CD8") %>% subset(Batch.scRNA == "scBRCA1")
+Idents(tmp) = tmp$PTGER4.Group.Celltype2
+for(i in 1){
+  PNG("BOC.CD45.PTGER4Group.DM.CD8.scBRCA1", w= 8, h =7)
+  print(DimPlot(tmp, cols = c("grey","dodgerblue4","orange","darkred")))
+  dev.off()
+  #PNG("BOC.CD45.PTGER4Group.VP.CD8.scBRCA1", w= 3, h =8)
+  PNG("BOC.CD45.PTGER4Group.VP.CD8.scBRCA1.V2", w= 4, h =5,r=300)
+  print(
+    VlnPlot(tmp, "PTGER4", pt.size = 0.2,cols =  c("grey","dodgerblue4","orange","darkred") ) + 
+      NoLegend() + 
+      theme(axis.text.x =  element_text(size = 15, angle = 90, hjust = 1, vjust = 0.3,color = "black"), 
+            axis.text.y = element_text(size = 25,color = "black"),
+            axis.title = element_blank(),
+            title = element_blank()
+            ) 
+      )
+  dev.off()
+}
+
+tmp = FetchData(BOC,vars = c("PTGER4","PTGER4.Group.Celltype4" , "Identity.Celltype4","Batch.scRNA"))
+for(i in 1){
+  PNG("BOC.CD45.VP.PTGER4Group.v2", w= 20, h =16)
+  print(
+    ggplot(tmp, aes(x = PTGER4.Group.Celltype4, y=PTGER4, fill = Identity.Celltype4 ) )+ 
+      geom_violin()+
+      facet_grid( Identity.Celltype4 ~ Batch.scRNA) + 
+      theme_bw() + Dot_axis90B   )
+  dev.off()
+}
+```
+
+#Figure 2/ Ext 2 (CD8) ------------
+##Fig 2A DM 
+```{r}
+BOC <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC.PTGER4Group.230713.rds")
+CD8 = subset(BOC,Identity.Celltype3 == "CD8 T cell") #CD8+Dividing CD8
+BOC = NULL
+CD8 = Clustering1(CD8, dist = 1, spread =1 )
+Idents(CD8) = CD8$Identity.Subtype1
+for(i in 1){
+  PNG("Fig.2A.BOC.CD8.DM.Subtype1.pt04",w= 6,h=6)
+  print(
+    DimPlot(CD8,label=F, pt.size = 0.4,
+            cols = BOCDF$cols$CD8.Subtype1,raster = F )  + 
+      theme(axis.title = element_blank(),
+                     axis.text = element_blank(),
+                     axis.line = element_line(colour = 'black', size = 1),
+                     axis.ticks = element_line(colour = 'black', size = 0.7))+
+      NoLegend()
+  )
+  dev.off()
+  PDF("Fig.2A.BOC.CD8.DM.Subtype1.L",w= 9,h=6,r=200)
+  print(
+    DimPlot(CD8,label=T,cols = BOCDF$cols$CD8.Subtype1,pt.size =0.5 ) 
+  )
+  dev.off()
+}
+```
+
+##Fig 2B PTGER4 expression (EP4 Group)
+```{r}
+Idents(CD8) = CD8$PTGER4.Group.Celltype
+tmp2 = c("#400E32","#A61F69","#F2921D","#F2CD5C")
+for(i in 1){
+  PDF("Fig.2B.BOC.CD8.Vln.PTGER4.PTGER4Group.Celltype",w=1,h=1.8,r=500)
+  print(
+    VlnPlot(CD8, "PTGER4",cols = tmp2, pt.size = 0) + 
+      NoLegend() +
+      #ylab("Normalize expression") +
+          theme(plot.title = element_blank(),
+                axis.text.x = element_text(size =4.5, family = "Arial", color = "black", angle = 90, hjust =1, vjust =0.3),
+                axis.text.y = element_text(size =4.5, family = "Arial", color = "black"),
+                axis.line = element_line(colour = 'black', size = 0.25),
+                axis.ticks = element_line(colour = 'black', size = 0.1),
+                axis.ticks.length = unit(0.02,"cm"),
+                legend.position = "bottom",
+                axis.title = element_blank()) )
+  dev.off
+}
+```
+
+
+##Fig 2C Bar Subtype1/PTGERGroup
+```{r}
+tmp1 = table(CD8$Identity.Subtype1, CD8$PTGER4.Group.Celltype )
+tmp1 = tmp1[!(tmp1[,"Undetected"] ==0 ) , ]
+tmp1 = apply(tmp1,1,function(x) x/colSums(tmp1)*100) %>% t() %>% as_tibble(rownames = "Cluster") %>% gather(key = "ID", value = "Pct", -Cluster)
+tmp1$Cluster =factor(tmp1$Cluster, levels = levels(CD8$Identity.Subtype1) )
+tmp1$ID = factor(tmp1$ID, levels =c("Undetected","Low","Intermediate","High"))
+tmp2 = table(CD8$PTGER4.Group.Celltype,CD8$Identity.Subtype1)
+tmp2 = tmp2[ , !(tmp2["Undetected",] ==0 )]
+tmp2 = apply(tmp2,1,function(x) x/colSums(tmp2)*100) %>% t() %>% as_tibble(rownames = "Cluster") %>% gather(key = "ID", value = "Pct", -Cluster)
+tmp2$Cluster =factor(tmp2$Cluster,levels =rev(c("Undetected","Low","Intermediate","High") )  )
+tmp2$ID = factor(tmp2$ID, levels =levels(CD8$Identity.Subtype1)  )
+tmp1$Set = "Subtype"
+tmp2$Set = "PTGER4Group"
+tmp = rbind(tmp1,tmp2)
+
+tmp$Set = factor(tmp$Set, levels = c("Subtype","PTGER4Group"))
+
+for(i in 1){
+      PDF("Fig.2C_Left.BOC.CD8.PCT.Identity.Subtype1-PTGER4.Group.Celltype.L", w=3.2, h=2.3,r=600)
+      print(
+            ggplot(tmp,aes(x = ID ,y = Pct,fill = Cluster )) +
+                  geom_bar(stat="identity")  +
+                  scale_fill_manual(values= c(BOCDF$cols$CD8.Subtype1,rev(c("#400E32","#A61F69","#F2921D","#F2CD5C") ) )) + 
+                  theme_classic()+ Dot_axis90B+
+                  facet_grid(.~ Set, scales = "free", space="free", switch = "y")+
+                  theme(legend.position = "right",
+                        axis.text.x = element_text(size =5, family = "Arial", color = "black",angle = 90, hjust =1, vjust =0.3),
+                        axis.text.y = element_text(size =5, family = "Arial", color = "black"),
+                        axis.line = element_line(colour = 'black', size = 0.5),
+                        axis.ticks = element_line(colour = 'black', size = 0.3),
+                        axis.ticks.length = unit(0.05,"cm"),
+                        axis.title = element_blank(),
+                        strip.background = element_blank(),
+                        strip.text = element_blank())# + NoLegend()
+      )
+      dev.off()
+
+}
+```
+
+
+##Fig 2D DE Summary
+```{r}
+DE2 <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC.DE_Specimen.Celltype.230713.rds")
+for(i in c("T_CD8")){
+  #Exp = DE[[i]][["FoldChange.Table"]] %>% t() %>% as.data.frame() %>% drop_na() %>% t() %>% as.data.frame()
+  #Exp2 = DE[[i]][["FoldChange.Table"]]
+  #Exp2[is.na(Exp2)] = 0
+  ###Overview
+      tmp = DE2[[i]]$FoldChange.Sum[!is.na(DE2[[i]]$FoldChange.Sum[,"Upregulation"]),]
+      tmp$Total =tmp$Upregulation+tmp$Downregulation
+      df = data.frame("Upregulation" = 0:max(tmp$Total),"Downregulation" = max(tmp$Total):0)
+      df$Count = NA
+      for(j in 0:max(tmp$Total)){
+        tmp1 = filter(tmp, Upregulation == j)
+        df[j+1,"Count"] = nrow(tmp1)
+        }
+      cutoff = (max(tmp$Total)/2)
+      tmp1 = colSums(filter(df, Upregulation > (max(tmp$Total)/2) ) )[3]
+      tmp2 = colSums(filter(df, Downregulation > (max(tmp$Total)/2) ) )[3]
+      for(j in 1){
+          PDF(paste0("Fig.2D.BOC.CD8.DESummary.L"),w = 8, h =5,r=500)
+          print(
+            ggplot(df, aes(x = Upregulation, y = Count) )+ 
+              geom_bar(fill = "black",stat="identity") +
+              geom_vline(xintercept = cutoff,linetype=2, size =1) + 
+              theme_classic()+
+              scale_x_continuous(breaks = c(seq(0,15,3)) )+
+              theme(axis.text = element_text(size =15,color="black"),
+                    plot.title = element_text(size = 6),
+                    axis.title = element_blank()
+                    )+
+              ggtitle(paste0(i, " (PTGER4 High-Low) Favor Downregulation ", tmp2," genes // Favor Upregulation ", tmp1, " genes") )
+            )
+          dev.off()
+          PDF(paste0("Fig.2D.BOC.CD8.DESummary"),w = 4, h =5,r=500)
+          print(
+            ggplot(df, aes(x = Upregulation, y = Count) )+ 
+              geom_bar(fill = "black",stat="identity",width = 0.7) +
+              geom_vline(xintercept = cutoff,linetype=2, size =1) + 
+              theme_classic()+
+              scale_x_continuous(breaks = c(seq(0,15,3)) )+
+              theme(axis.text = element_blank(),
+                    axis.title = element_blank()
+                    )
+            )
+          dev.off()
+          }
+}
+
+```
+
+##Fig 2E GSEA Running
+```{r}
+DE = readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC.DE_Bulk.Celltype.Converted.GSEA_nperm50K.2300901.rds")
+selected.pathway = c("HALLMARK_IL2_STAT5_SIGNALING","HALLMARK_OXIDATIVE_PHOSPHORYLATION","HALLMARK_MYC_TARGETS_V1")
+GSEA = DE$GSEA_H2
+for(i in c("T_CD8")){
+  tmp1 = DE[[i]][["High-Low"]] %>% as_tibble(rownames = "Genes" ) %>% dplyr::select(Genes, avg_log2FC) %>% arrange(avg_log2FC) %>% deframe()
+  tmp2 = GSEA[[i]] %>% as.data.frame()
+  rownames(tmp2) = tmp2$pathway
+  for(p in selected.pathway){
+    tmp3 = paste0("NES = ",tmp2[p,"NES"],"\n p-value = ", tmp2[p,"pval"],"\n adjusted p-value = ", tmp2[p,"padj"])
+    PDF(paste0("Fig.2E.BOC.Bulk.Celltype4.GSEAPlot.",i,".",p),w=5,h=3)
+    print(plotEnrichment(fgsea_sets[[p]], tmp1 ,gseaParam = 1,ticksSize = 0.3  ) + ggtitle(paste0(i," | ", p),tmp3)  )
+    dev.off()
+    tmp = plotEnrichment(fgsea_sets[[p]], tmp1 ,1,0.3  ) + 
+      theme_classic() + 
+      theme(plot.title = element_blank() , 
+            axis.title = element_blank(),
+            axis.text = element_text(size =4.5, family = "Arial", color = "black" ) )
+    tmp$layers[[1]]$aes_params$colour = "#C02429"
+    a = tmp$layers[[3]]$data
+    tmp$layers[[6]]$mapping$y = as.numeric(a-0.1)
+    tmp$layers[[6]]$mapping$yend= as.numeric(a-0.2)
+    tmp$layers[[6]]$aes_params$size=0.3
+    tmp$layers[[6]]$aes_params$colour = "#E0575B"
+    tmp$layers[[5]] = geom_line(color ="#C02429",size=1)
+    tmp$layers[[2]]$aes_params$colour = "black"
+    tmp$layers[[3]]$aes_params$colour = "black"
+    PDF(paste0("Fig.2E.BOC.Bulk.Celltype.GSEAPlot.",i,".",p,".UL.col2"),w=2.2,h=1)
+    print(tmp )
+    dev.off()
+  }
+}
+DE$GSEA$T_CD8 %>% filter(pathway %in% selected.pathway)
+```
+
+##Fig 2F Heatmap
+```{r}
+DE2 <- readRDS("~/RStudioProject/scRNA/BOC.DE_Specimen.Celltype.230713.converted.rds")
+DE2 <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC.DE_Specimen.Celltype.230713.converted.rds")
+
+df = DE2$df
+
+i = "CD8.Overview2"
+selected.cluster = c("T_CD8")
+for(i in c("CD8.Overview2") ){
+  selected.genes = unlist( GeneSet$DE[[i]] ) %>% unique()
+  df1 = filter(df, Genes %in% selected.genes )  %>% filter(Cluster %in% selected.cluster)
+  df1 = pCat(df1,"p_val_adj")
+  df1 = GeneGroup(df1, GeneSet$DE[[i]] )
+  Fsize = 6
+  a = max(abs(df1$avg_log2FC))+0.2 
+  plot = ggplot(df1, aes(y = Dataset , x = Genes  ) ) + 
+    facet_grid(Cluster ~ Set, scales = "free", space="free", switch = "y") + 
+    theme_classic() + 
+    Dot_axis90A + 
+    ggtitle(i)+
+    geom_tile(color = "white",aes(fill =avg_log2FC)) +  
+    scale_fill_gradientn(colours = Col.HiLow.7Shades,
+                         values =  c( 0,0.43,0.5,0.57,  a ),                                 
+                         limits = c(-a,a) ) +
+    theme(plot.title = element_blank(),
+          axis.text.x = element_text(size =Fsize, family = "Arial", color = "black", face = "italic",angle = 90, hjust =1, vjust =0.3),
+          axis.text.y = element_text(size =Fsize, family = "Arial", color = "black"),
+          axis.line = element_line(colour = 'black', size = 0.25),
+          axis.ticks = element_line(colour = 'black', size = 0.15),
+          axis.ticks.length = unit(0.05,"cm"),
+          axis.title = element_blank(), 
+          strip.text.y = element_blank(),
+          strip.text.x.top = element_text(size =Fsize, family = "Arial",colour = "black",
+                                          margin = margin(t = 0.1, r = 0, b = 0.1, l = 0, unit = "cm") ),
+          strip.background = element_rect(fill = "white",linewidth = 0.35),
+          strip.background.y =  element_blank(),
+          strip.placement = "outside",
+          legend.key.size = unit(0.1, 'in'),
+                        legend.title = element_text(size = Fsize),
+                        legend.text = element_text(size=Fsize-1),
+          
+          plot.margin = margin(t = 0, r = 0, b = 0, l = 0  ),
+          legend.position = "bottom"
+          )
+  
+                
+  PDF(paste0("Fig.2F.BOC.CD8.DE.perSpec.Heatmap.Celltype.",i), h = 2.4, w = 4.5 )
+  print(plot)
+  dev.off()
+}
+
+```
+
+###Sipplement [omitted] FP 
+```{r}
+Idents(CD8) = CD8$PTGER4.Group.Celltype4
+tmp2 = c("#400E32","#A61F69","#F2921D","#F2CD5C")
+names(tmp2) = levels(CD8$PTGER4.Group.Celltype4)
+for(i in levels(CD8$PTGER4.Group.Celltype4)){
+  tmp = subset(CD8, PTGER4.Group.Celltype4 == i )
+  PNG(paste0("BOC.CD45.CD8.PTGER4Group.",i),w= 6,h=6,r=200)
+  print(
+    DimPlot(tmp,label=F,cols =  tmp2[i]  ,pt.size =0.5 )  + NoLegend()
+  )
+  dev.off()
+}
+```
+
+
+
+#Figure3 (TIM)
+##Fig 3A1 UMAP
+```{r}
+BOC = readRDS("BOC.PTGER4Group.230713.rds")
+Idents(BOC) = BOC$Identity.Celltype2
+TIM = subset(BOC, idents = c("TAN-PMN","TIM","TIM_Dividing"))
+BOC = 0
+TIM = Clustering1(TIM, spread = 1, dist = 1)
+Idents(TIM) = TIM$Identity.Subtype1
+
+for(i in 1){
+  PNG("Fig.3A.BOC.TIM.Subtype1.pt1",w= 6,h=6)
+  print(
+    DimPlot(TIM, pt.size = 1, raster =F,
+            cols = BOCDF$cols$TIM.Subtype1)  +
+      theme(axis.title = element_blank(),
+                     axis.text = element_blank(),
+                     axis.line = element_line(colour = 'black', size = 1),
+                     axis.ticks = element_line(colour = 'black', size = 0.7)) +
+    NoLegend()
+  )
+  
+  dev.off()
+  PDF("Fig.3A.BOC.TIM.Subtype1.UL",w= 2,h=2)
+  print(  
+    DimPlot(TIM, 
+            cols = BOCDF$cols$TIM.Subtype1, 
+            pt.size = 0.01)+
+      theme(axis.text = element_text(size =5, family = "Arial", color = "black"),
+            axis.title = element_text(size = 5, family = "Arial", color = "black"),
+            axis.line = element_line(colour = 'black', size = 0.25),
+            axis.ticks = element_line(colour = 'black', size = 0.15),
+            axis.ticks.length = unit(0.05,"cm")  
+            )  +
+      NoLegend()
+    )
+  dev.off()
+  
+  
+  PDF("Fig.3A.BOC.TIM.Subtype1.L",w= 9,h=6)
+  print(  DimPlot(TIM, cols = BOCDF$cols$TIM.Subtype1, pt.size = 1)    )
+  dev.off()
+}
+```
+
+##Fig 3A2 Signature Dotplot
+```{r}
+#BOCDF$AllMarkers$TIM = FindAllMarkers(TIM, max.cells.per.ident = 200)
+BOCDF$AllMarkers$TIM %>% group_by(cluster) %>% top_n(n=30, wt=avg_log2FC)
+GeneSet$Markers.TIM = c("CSF3R","ADGRG3","NAMPT","AQP9","CXCL8","FCGR3B","TNFAIP6","CXCR4","VCAN","FCN1","IL1A","IL1B","NLRP3","VEGFA","KYNU","AREG","C1QA","C1QC","APOE","TREM2","TYRO3","AXL","MERTK","HLA-DRA","HLA-DRB5","HLA-DQB1","HLA-DMA","HLA-DQA1","CD206","MKI67","STMN1","TOP2A","TPX2","TUBA1B","TUBB","HIST1H4C")
+GeneSet$Markers.TIM2 = c("CSF3R","ADGRG3","CXCL8","FCGR3B","CXCR4","VCAN","IL1A","IL1B","NLRP3","VEGFA","C1QA","C1QC","APOE","TREM2","AXL","MERTK","HLA-DRA","HLA-DRB5","HLA-DQB1","HLA-DMA","MKI67","STMN1","TOP2A","TUBA1B","HIST1H4C")
+GeneSet$Markers.TIM3 = c("CSF3R","ADGRG3","CXCL8","FCGR3B","CXCR4","VCAN","IL1B","NLRP3","VEGFA","C1QA","APOE","TREM2","AXL","MERTK","MKI67","STMN1","TOP2A","TUBA1B","HIST1H4C")
+Idents(TIM) = TIM$Identity.Subtype1
+tmp = DotPlot(TIM, features = GeneSet$Markers.TIM3)$data
+
+for(i in 1){
+  PDF("Fig3A2.BOC.TIM.Signature3",w=2.9,h=2.6)
+  print(
+    ggplot(tmp,aes(y = fct_rev(features.plot), x = id, size =pct.exp, color = avg.exp.scaled))+
+      geom_point() + 
+      scale_size(range = c(0.5,2.5),breaks = c(20,40,60,80,100),name = "Percent expressed cells")+
+      scale_PRainbow +
+      scale_y_discrete(position = "left")+
+      theme_classic() + 
+      theme(plot.title = element_blank(),
+                axis.title = element_blank(),
+                axis.text.x = element_text(size =5, family = "Arial", color = "black",angle = 90, hjust =1, vjust =0.3),
+                axis.text.y = element_text(size =5, family = "Arial", color = "black", face = "italic"),
+                axis.line = element_line(colour = 'black', size = 0.25),
+                axis.ticks = element_line(colour = 'black', size = 0.15),
+                axis.ticks.length = unit(0.05,"cm"),
+                legend.position = "right"
+                )
+  )
+  dev.off()
+}
+for(i in 1){
+  PDF("Fig3A2.BOC.TIM.Signature3.Smaller",w=2.8,h=2.3)
+  print(
+    ggplot(tmp,aes(y = fct_rev(features.plot), x = id, size =pct.exp, color = avg.exp.scaled))+
+      geom_point() + 
+      scale_size(range = c(0.5,1.8),breaks = c(10,30,50,70,90),name = "Percent expressed cells")+
+      scale_PRainbow +
+      scale_y_discrete(position = "left")+
+      theme_classic() + 
+      theme(plot.title = element_blank(),
+                axis.title = element_blank(),
+                axis.text.x = element_text(size =5, family = "Arial", color = "black",angle = 90, hjust =1, vjust =0.3),
+                axis.text.y = element_text(size =5, family = "Arial", color = "black", face = "italic"),
+                axis.line = element_line(colour = 'black', size = 0.25),
+                axis.ticks = element_line(colour = 'black', size = 0.15),
+                axis.ticks.length = unit(0.05,"cm"),
+                legend.position = "right"
+                )
+  )
+  dev.off()
+}
+```
+
+##Fig 3B1 FP (EP2/4)
+```{r}
+for(i in c("PTGER2","PTGER4")  ){
+  PDF(paste0("Fig.3B1.BOC.TIM.FP.",i),h=1.5,w=1.5)
+  print(
+    FeaturePlot(TIM, i,pt.size = 0.01, cols = col_orange3) +
+      theme(plot.title = element_blank(),
+            axis.text = element_text(size =5, family = "Arial", color = "black"),
+            axis.title = element_text(size = 5, family = "Arial", color = "black"),
+            axis.line = element_line(colour = 'black', size = 0.25),
+            axis.ticks = element_line(colour = 'black', size = 0.15),
+            axis.ticks.length = unit(0.05,"cm")  
+            )  +
+      NoLegend()
+        )
+  dev.off()
+}
+for(i in c("PTGER4")  ){
+  PDF(paste0("Fig.3B1.BOC.TIM.FP.L.",i),h=2,w=2)
+  print(
+    FeaturePlot(TIM, i,pt.size = 0.01, cols = col_orange3) +
+      theme(plot.title = element_blank(),
+            axis.title = element_text(size =15))
+        )
+  dev.off()
+}
+
+```
+
+##Fig 3B2 pct.exp PGs
+```{r}
+GeneSet$PGE2B
+tmp = DotPlot(TIM, features = GeneSet$PGE2B)$data
+tmp$pct.exp.cat = (floor(tmp$pct.exp/10)*10) 
+tmp$pct.exp.cat = gsub("^0","<10%",tmp$pct.exp.cat,  perl = T)
+tmp$pct.exp.cat = gsub("^10","10-20%",tmp$pct.exp.cat,  perl = T)
+tmp$pct.exp.cat = gsub("^20","20-30%",tmp$pct.exp.cat,  perl = T)
+tmp$pct.exp.cat = gsub("^30","30-40%",tmp$pct.exp.cat,  perl = T)
+tmp$pct.exp.cat = gsub("^40","40-50%",tmp$pct.exp.cat,  perl = T)
+tmp$pct.exp.cat = gsub("^50","50-60%",tmp$pct.exp.cat,  perl = T)
+tmp$pct.exp.cat = gsub("^60","60-70%",tmp$pct.exp.cat,  perl = T)
+tmp$pct.exp.cat = factor(tmp$pct.exp.cat, levels = sort(unique(tmp$pct.exp.cat)) )
+
+for(i in 1){
+  PDF(paste0("Fig.3B2.BOC.TIM.DP.PGE2"),w = 2.75,h=1.1)
+  print(
+    ggplot(tmp, aes(y = fct_rev(id), x = features.plot))+
+      geom_point(colour = "black",pch = 21,aes(size = pct.exp.cat, fill = pct.exp.cat) )+
+      scale_fill_manual(values=  col_BlueRed2 ) +
+      scale_size_manual(values = seq(2,6,0.5))+
+      #scale_y_discrete(position = "right")+
+      theme_classic()+
+      theme(plot.title = element_blank(),
+            axis.title = element_blank(),
+            axis.text.x = element_text(size =5, family = "Arial", color = "black", face = "italic",angle = 90, hjust =1, vjust =0.3),
+            axis.text.y = element_text(size =5, family = "Arial", color = "black"),
+            axis.line = element_line(colour = 'black', size = 0.25),
+            axis.ticks = element_line(colour = 'black', size = 0.15),
+            axis.ticks.length = unit(0.05,"cm"),
+            legend.position = "right"
+                )
+  )
+  dev.off()
+
+}
+tmp %
+```
+
+
+##Fig 3C PTGER4 expression (EP4 Group)
+```{r}
+Idents(TIM) = TIM$PTGER4.Group.Celltype
+tmp2 = c("#400E32","#A61F69","#F2921D","#F2CD5C")
+for(i in 1 ){
+  PDF("Fig.3C.BOC.TIM.Vln.PTGER4.PTGER4Group.Celltype",w=1,h=2)
+  print(
+    VlnPlot(TIM, "PTGER4",cols = tmp2, pt.size = 0) + 
+      NoLegend() +
+      theme(axis.title = element_blank(),
+            axis.text.x = element_text(size =5, family = "Arial", color = "black",angle = 90, hjust =1, vjust =0.3),
+            axis.text.y = element_text(size =5, family = "Arial", color = "black"),
+            plot.title = element_blank())
+  )
+  dev.off
+}
+```
+
+##Fig 3D1 DE count Summary
+```{r}
+DE2 <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC.DE_Specimen.Celltype.230713.converted.rds")
+
+for(i in c("TIM")){
+      tmp = DE2[[i]]$FoldChange.Sum[!is.na(DE2[[i]]$FoldChange.Sum[,"Upregulation"]),]
+      tmp$Total =tmp$Upregulation+tmp$Downregulation
+      df = data.frame("Upregulation" = 0:max(tmp$Total),"Downregulation" = max(tmp$Total):0)
+      df$Count = NA
+      for(j in 0:max(tmp$Total)){
+        tmp1 = filter(tmp, Upregulation == j)
+        df[j+1,"Count"] = nrow(tmp1)
+        }
+      cutoff = (max(tmp$Total)/2)
+      tmp1 = colSums(filter(df, Upregulation > (max(tmp$Total)/2) ) )[3]
+      tmp2 = colSums(filter(df, Downregulation > (max(tmp$Total)/2) ) )[3]
+      for(j in 1){
+          PDF(paste0("Fig.3D.BOC.TIM.DESummary.L"),w = 8, h =5)
+          print(
+            ggplot(df, aes(x = Upregulation, y = Count) )+ 
+              geom_bar(fill = "black",stat="identity") +
+              geom_vline(xintercept = cutoff,linetype=2, size =1) + 
+              theme_classic()+
+              scale_x_continuous(breaks = c(seq(0,15,3)) )+
+              theme(axis.text = element_text(size =15,color="black"),
+                    plot.title = element_text(size = 6),
+                    axis.title = element_blank()
+                    )+
+              ggtitle(paste0(i, " (PTGER4 High-Low) Favor Downregulation ", tmp2," genes // Favor Upregulation ", tmp1, " genes") )
+            )
+          dev.off()
+          PDF(paste0("Fig.3D.BOC.TIM.DESummary"),w = 4, h =5)
+          print(
+            ggplot(df, aes(x = Upregulation, y = Count) )+ 
+              geom_bar(fill = "black",stat="identity",width = 0.7) +
+              geom_vline(xintercept = cutoff,linetype=2, size =1) + 
+              theme_classic()+
+              scale_x_continuous(breaks = c(seq(0,15,3)) )+
+              theme(axis.text = element_blank(),
+                    axis.title = element_blank()
+                    )
+            )
+          dev.off()
+          }
+}
+
+```
+
+##Fig 3D2 DE count Summary
+```{r}
+DE2 <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC.DE_Specimen.Subtype1.230713.converted.rds")
+
+for(i in c("TIM_C1QA")){
+      tmp = DE2[[i]]$FoldChange.Sum[!is.na(DE2[[i]]$FoldChange.Sum[,"Upregulation"]),]
+      tmp$Total =tmp$Upregulation+tmp$Downregulation
+      df = data.frame("Upregulation" = 0:max(tmp$Total),"Downregulation" = max(tmp$Total):0)
+      df$Count = NA
+      for(j in 0:max(tmp$Total)){
+        tmp1 = filter(tmp, Upregulation == j)
+        df[j+1,"Count"] = nrow(tmp1)
+        }
+      cutoff = (max(tmp$Total)/2)
+      tmp1 = colSums(filter(df, Upregulation > (max(tmp$Total)/2) ) )[3]
+      tmp2 = colSums(filter(df, Downregulation > (max(tmp$Total)/2) ) )[3]
+      for(j in 1){
+          PDF(paste0("Fig.3D.BOC.TIM_C1QA.DESummary.L"),w = 8, h =5)
+          print(
+            ggplot(df, aes(x = Upregulation, y = Count) )+ 
+              geom_bar(fill = "black",stat="identity") +
+              geom_vline(xintercept = cutoff,linetype=2, size =1) + 
+              theme_classic()+
+              scale_x_continuous(breaks = c(seq(0,15,3)) )+
+              theme(axis.text = element_text(size =15,color="black"),
+                    plot.title = element_text(size = 6),
+                    axis.title = element_blank()
+                    )+
+              ggtitle(paste0(i, " (PTGER4 High-Low) Favor Downregulation ", tmp2," genes // Favor Upregulation ", tmp1, " genes") )
+            )
+          dev.off()
+          PDF(paste0("Fig.3D.BOC.TIM_C1QA.DESummary"),w = 4, h =5,r=500)
+          print(
+            ggplot(df, aes(x = Upregulation, y = Count) )+ 
+              geom_bar(fill = "black",stat="identity",width = 0.7) +
+              geom_vline(xintercept = cutoff,linetype=2, size =1) + 
+              theme_classic()+
+              scale_x_continuous(breaks = c(seq(0,15,3)) )+
+              theme(axis.text = element_blank(),
+                    axis.title = element_blank()
+                    )
+            )
+          dev.off()
+          }
+}
+
+```
+
+##Fig 3E GSEA Running
+```{r}
+DE = readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC.DE_Bulk.Celltype.Converted.GSEA_nperm50K.2300901.rds")
+selected.pathway = c("HALLMARK_TNFA_SIGNALING_VIA_NFKB","HALLMARK_INFLAMMATORY_RESPONSE",
+                     "HALLMARK_OXIDATIVE_PHOSPHORYLATION","HALLMARK_MYC_TARGETS_V1" )
+
+GSEA = DE$GSEA_H2
+for(i in c("TIM")){
+  tmp1 = DE[[i]][["High-Low"]] %>% as_tibble(rownames = "Genes" ) %>% dplyr::select(Genes, avg_log2FC) %>% arrange(avg_log2FC) %>% deframe()
+  tmp2 = GSEA[[i]] %>% as.data.frame()
+  rownames(tmp2) = tmp2$pathway
+  for(p in selected.pathway){
+    tmp3 = paste0("NES = ",tmp2[p,"NES"],"\n p-value = ", tmp2[p,"pval"],"\n adjusted p-value = ", tmp2[p,"padj"])
+    PDF(paste0("Fig.2E.BOC.Bulk.Celltype4.GSEAPlot.",i,".",p),w=5,h=3)
+    print(plotEnrichment(fgsea_sets[[p]], tmp1 ,gseaParam = 1,ticksSize = 0.3  ) + ggtitle(paste0(i," | ", p),tmp3)  )
+    dev.off()
+    tmp = plotEnrichment(fgsea_sets[[p]], tmp1 ,1,0.3  ) + 
+      theme_classic() + 
+      theme(plot.title = element_blank(),
+                axis.title = element_blank(),
+                axis.text.x = element_text(size =5, family = "Arial", color = "black"),
+                axis.text.y = element_text(size =5, family = "Arial", color = "black"),
+                axis.line = element_line(colour = 'black', size = 0.25),
+                axis.ticks = element_line(colour = 'black', size = 0.15),
+                axis.ticks.length = unit(0.05,"cm"),
+                legend.position = "bottom"
+                )
+    tmp$layers[[1]]$aes_params$colour = "#fcb900"
+    a = tmp$layers[[3]]$data
+    tmp$layers[[6]]$mapping$y = as.numeric(a-0.1)
+    tmp$layers[[6]]$mapping$yend= as.numeric(a-0.2)
+    tmp$layers[[6]]$aes_params$size=0.3
+    tmp$layers[[6]]$aes_params$colour = "#FFD256"
+    tmp$layers[[5]] = geom_line(color ="#fcb900",,size=1)
+    tmp$layers[[2]]$aes_params$colour = "black"
+    tmp$layers[[3]]$aes_params$colour = "black"
+    PDF(paste0("Fig.2E.BOC.Bulk.Celltype.GSEAPlot.",i,".",p,".UL.col2"),w=1.7,h=0.9)
+    print(tmp )
+    dev.off()
+  }
+}
+
+GSEA$TIM %>% filter(pathway %in% selected.pathway)
+```
+
+##Fig 3F Heatmap TIM
+```{r}
+DE2 <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC.DE_Specimen.Celltype.230713.converted.rds")
+df = DE2$df
+selected.cluster = c("TIM")
+i = "TIM.Overview2"
+for(i in c("TIM.Overview2") ){
+  selected.genes = unlist( GeneSet$DE[[i]] ) %>% unique()
+  df1 = filter(df, Genes %in% selected.genes )  %>% filter(Cluster %in% selected.cluster)
+  df1 = pCat(df1,"p_val_adj")
+  df1 = GeneGroup(df1, GeneSet$DE[[i]] )
+  Fsize = 5.3
+  a = max(abs(df1$avg_log2FC))+0.2 
+  plot = ggplot(df1, aes(y = Dataset , x = Genes  ) ) + 
+    facet_grid(Cluster ~ Set, scales = "free", space="free", switch = "y") + 
+    theme_classic() + 
+    geom_tile(color = "white",aes(fill =avg_log2FC)) +  
+    scale_fill_gradientn(colours = Col.HiLow.7Shades,
+                         #values =  c( 0,0.35,0.46,0.5,0.54,0.65,1 ),
+                         values =  c( 0,0.45,0.5,0.55,1 ),     
+                         limits = c(-a,a) ) +
+    theme(plot.title = element_blank(),
+          axis.text.x = element_text(size =Fsize, family = "Arial", color = "black", face = "italic",angle = 90, hjust =1, vjust =0.3),
+          axis.text.y = element_text(size =Fsize, family = "Arial", color = "black"),
+          axis.line = element_line(colour = 'black', size = 0.25),
+          axis.ticks = element_line(colour = 'black', size = 0.15),
+          axis.ticks.length = unit(0.05,"cm"),
+          axis.title = element_blank(), 
+          strip.text.y = element_blank(),
+          strip.text.x.top = element_text(size =Fsize, family = "Arial",colour = "black",
+                                          margin = margin(t = 0.1, r = 0, b = 0.1, l = 0, unit = "cm") ),
+          strip.background = element_rect(fill = "white",linewidth = 0.35),
+          strip.background.y =  element_blank(),
+          strip.placement = "outside",
+          legend.key.size = unit(0.1, 'in'),
+                        legend.title = element_text(size = Fsize),
+                        legend.text = element_text(size=Fsize-1),
+          
+          plot.margin = margin(t = 0, r = 0, b = 0, l = 0  ),
+          legend.position = "bottom"
+          )
+  PDF(paste0("Fig.3F.BOC.TIM.DE.perSpec.Heatmap.Celltype.",i), h = 2, w = 3.3 )
+  print(plot)
+  dev.off()
+}
+```
+
+##Fig 3G Heatmap TIM_C1QA
+```{r}
+DE2 <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC.DE_Specimen.Subtype1.230713.converted.rds")
+df = DE2$df.TIM
+df$Cluster %>% unique()
+selected.cluster = c("TIM_C1QA")
+for(i in c("TIM.Overview2") ){
+  selected.genes = unlist( GeneSet$DE[[i]] ) %>% unique()
+  df1 = filter(df, Genes %in% selected.genes )  %>% filter(Cluster %in% selected.cluster)
+  df1 = pCat(df1,"p_val_adj")
+  df1 = GeneGroup(df1, GeneSet$DE[[i]] )
+  Fsize = 5.3
+  a = max(abs(df1$avg_log2FC))+0.2 
+  plot = ggplot(df1, aes(y = Dataset , x = Genes  ) ) + 
+    facet_grid(Cluster ~ Set, scales = "free", space="free", switch = "y") + 
+    theme_classic() + 
+    geom_tile(color = "white",aes(fill =avg_log2FC)) +  
+    scale_fill_gradientn(colours = Col.HiLow.7Shades,
+                         values =  c( 0,0.45,0.5,0.55,1 ),                                 
+                         limits = c(-a,a) ) +
+    theme(plot.title = element_blank(),
+          axis.text.x = element_text(size =Fsize, family = "Arial", color = "black", face = "italic",angle = 90, hjust =1, vjust =0.3),
+          axis.text.y = element_text(size =Fsize, family = "Arial", color = "black"),
+          axis.line = element_line(colour = 'black', size = 0.25),
+          axis.ticks = element_line(colour = 'black', size = 0.15),
+          axis.ticks.length = unit(0.05,"cm"),
+          axis.title = element_blank(), 
+          strip.text.y = element_blank(),
+          strip.text.x.top = element_text(size =Fsize, family = "Arial",colour = "black",
+                                          margin = margin(t = 0.1, r = 0, b = 0.1, l = 0, unit = "cm") ),
+          strip.background = element_rect(fill = "white",linewidth = 0.35),
+          strip.background.y =  element_blank(),
+          strip.placement = "outside",
+          legend.key.size = unit(0.1, 'in'),
+                        legend.title = element_text(size = Fsize),
+                        legend.text = element_text(size=Fsize-1),
+          
+          plot.margin = margin(t = 0, r = 0, b = 0, l = 0  ),
+          legend.position = "bottom"
+          )  
+  PDF(paste0("Fig.3F.BOC.TIM_C1QA.DE.perSpec.Heatmap.Subtype1.",i), h = 2, w = 3.3 ) 
+  print(plot)
+  dev.off()
+}
+```
+
+
+
+#Figure4/Ext 4 (LLC)
+##Fig 4A UMAP Overview
+```{r}
+LLC <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/LLC.ReShape.230730.rds")
+
+#LLCDF = list()
+LLCDF$Col.Identity.Celltype2 = c("#f57f26","cyan4",
+                                 "#252d6b",
+                                 "#fcb900","#d51f24",
+                                 "#2D3D98","#1e8b40","#a83a2b","#7D387D",
+                                 "#7A5532","grey")
+LLCDF$Col.Identity.Celltype3 = c("#f57f26","#d51f24","#21578D","#7B3B59","#227856",
+                                 "#252d6b","#fcb900",
+                                 "#d51f24",
+                                 "#2D3D98","#1e8b40","#a83a2b","#7D387D",
+                                 "#7A5532","grey")
+
+
+print(DimPlot(LLC,label =T, 
+                    cols = LLCDF$Col.Identity.Celltype2))
+Idents(LLC) = LLC$Identity.Celltype2
+for(i in 1){
+      PDF("Fig.4A.LLC.DM", w=6,h=6)
+      print(DimPlot(LLC,label =F, pt.size = 0.1,
+                    cols = LLCDF$Col.Identity.Celltype2
+                    ) + NoLegend())
+      dev.off()
+      PDF("Fig.4A.LLC.DM.L", w=9,h=6)
+      print(DimPlot(LLC,label =T, 
+                    cols = LLCDF$Col.Identity.Celltype2
+                    ) ) 
+      dev.off()
+}
+```
+
+##Fig 4B GSEA Running
+```{r}
+DE = readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/DE.LLC.Celltype3.pval.nperm50k.230903.rds")
+selected.pathway = c("HALLMARK_OXIDATIVE_PHOSPHORYLATION","HALLMARK_MYC_TARGETS_V1")
+selected.pathway = c("HALLMARK_OXIDATIVE_PHOSPHORYLATION")
+selected.cluster = c("T_CD8","Mono","TAM")
+
+col1 = c("#40A8A8","#FED460","#E57377")
+names(col1) = selected.cluster
+col2 = c("cyan4","#fcb900","#d51f24")
+names(col2) = selected.cluster
+tmp4 = list()
+for(t in c("Day1.5")){
+  for(c in selected.cluster ){
+    tmp1 = DE[[t]][[c]] %>% as_tibble(rownames = "Genes" ) %>% dplyr::select(Genes, avg_log2FC) %>% arrange(avg_log2FC) %>% deframe()
+    tmp2 = GSEA[[t]][[c]] %>% as.data.frame()
+    rownames(tmp2) = tmp2$pathway
+    for(p in selected.pathway){
+      tmp3 = paste0("NES = ",tmp2[p,"NES"],"\n p-value = ", tmp2[p,"pval"],"\n adjusted p-value = ", tmp2[p,"padj"])
+    #PDF(paste0("Fig.4B.LLC.Celltype3.GSEAPlot.",c,".",t,".",p),w=5,h=3)
+    print(plotEnrichment(mfgsea_sets[[p]], tmp1 ,gseaParam = 1,ticksSize = 0.3  ) + 
+            ggtitle(paste0(c," | ", t," | ", p),tmp3)  )
+    #dev.off()
+    tmp = plotEnrichment(mfgsea_sets[[p]], tmp1 ,1,0.3  ) + 
+      theme_classic() + 
+      theme(plot.title = element_blank() , 
+            axis.title = element_blank(),
+            axis.text.x = element_text(size =5, family = "Arial", color = "black"),
+            axis.text.y = element_text(size =5, family = "Arial", color = "black"),
+            axis.line = element_line(colour = 'black', size = 0.25),
+            axis.ticks = element_line(colour = 'black', size = 0.15),
+            plot.margin = margin(t = 0, r = 0, b = 0, l = 0  )  )
+    a = tmp$layers[[3]]$data
+    tmp$layers[[6]]$mapping$y = as.numeric(a-0.1)
+    tmp$layers[[6]]$mapping$yend= as.numeric(a-0.2)
+    tmp$layers[[6]]$aes_params$size=0.13
+    tmp$layers[[6]]$aes_params$colour = col2[c]
+    tmp$layers[[5]] = geom_line(color =col1[c],size=0.25)
+    tmp$layers[[2]]$aes_params$colour = "black"
+    tmp$layers[[3]]$aes_params$colour = "black"
+    tmp$layers[[1]] = NULL
+    #tmp$layers[[1]]$aes_params$colour = col1[c]
+    #tmp$layers[[1]]$aes_params$size = 0.01
+    #PDF(paste0("Fig.4B.LLC.Celltype3.GSEAPlot.",c,".",t,".",p,".UL"),w=1.5,h=0.7)
+    print(tmp )
+    #dev.off()
+    
+    }
+  }
+}
+GSEA$Day1.5$T_CD8 %>% filter(pathway %in% selected.pathway)
+```
+
+
+
+
+
+##Fig 4C-D Heatmap (Day1.5/OXPHOS-RPs)
+```{r}
+#df = LLCDF$df.DE.Celltype2
+df = LLCDF$df.DE.Celltype3
+geneSet$Ribosome
+tmp1 = df %>% filter( (Cluster  == "TAM") & (Dataset =="Day1.5") & (p_val >0 ) )  %>% filter(Genes %in% geneSet$Ribosome[["RP large subunit"]]) %>% arrange(p_val)
+tmp1 = tmp1$Genes[1:17]
+tmp2 = df %>% filter( (Cluster  == "TAM") & (Dataset =="Day1.5") & (p_val >0 ) )  %>% filter(Genes %in% geneSet$Ribosome[["RP small subunit"]]) %>% arrange(p_val)
+tmp2 = tmp2$Genes[1:17]
+geneSet$Ribosome.selected = list("RP large subunit" = tmp1, "RP small subunit" = tmp2)
+
+tmp1 = df %>% filter( (Cluster  == "TAM") & (Dataset =="Day1.5") & (p_val >0 ) )  %>% filter(Genes %in% geneSet$ETC.Ref2[["Complex I"]]) %>% arrange(p_val)
+tmp1 = tmp1$Genes[1:7]
+tmp2 = df %>% filter( (Cluster  == "TAM") & (Dataset =="Day1.5") & (p_val >0 ) )  %>% filter(Genes %in% geneSet$ETC.Ref2[["Complex II"]])  %>% arrange(p_val)
+tmp2 = tmp2$Genes[1:5]
+tmp3 = df %>% filter( (Cluster  == "TAM") & (Dataset =="Day1.5") & (p_val >0 ) )  %>% filter(Genes %in% geneSet$ETC.Ref2[["Complex III"]])  %>% arrange(p_val)
+tmp3 = tmp3$Genes[1:7]
+tmp4 = df %>% filter( (Cluster  == "TAM") & (Dataset =="Day1.5") & (p_val >0 ) )  %>% filter(Genes %in% geneSet$ETC.Ref2[["Complex IV"]])  %>% arrange(p_val)
+tmp4 = tmp4$Genes[1:7]
+tmp5 = df %>% filter( (Cluster  == "TAM") & (Dataset =="Day1.5") & (p_val >0 ) )  %>% filter(Genes %in% geneSet$ETC.Ref2[["Complex V"]])  %>% arrange(p_val)
+tmp5 = tmp5$Genes[1:7]
+
+geneSet$ETC.selected4 = list("Complex I" = tmp1,
+                             "Complex II" = tmp2, 
+                             "Complex III" = tmp3, 
+                             "Complex IV" = tmp4,
+                             "Complex V" = tmp5)
+
+
+geneSet$ETC.Ribosome =  c(geneSet$ETC.selected4,geneSet$Ribosome.selected)
+
+for(t in  c("Day1.5")){
+for(i in  c("ETC.Ribosome") ){
+  df1 = filter(df, Dataset == t)
+  df1 = GeneGroup(df1, geneSet[[i]] )
+  df1 = pCat(df1, "p_val_adj" )
+  a = max(abs(df1$avg_log2FC))+0.2 
+  Fsize = 5
+  plot = ggplot(df1, aes(y = fct_rev(Cluster), x = Genes  ) ) + 
+            facet_grid(Dataset ~ Set, scales = "free", space="free", switch = "y") +
+            theme_classic() + 
+            geom_point(aes(color = avg_log2FC, size = pval_cat))+scale_size_manual(values = c(0.7,1,1.4,1.8) ) + 
+            scale_color_gradientn(colours = Col.HiLow.9Shades, 
+                                  values = c(0,0.4,0.5,0.6,1 ),
+                                  limits = c(-a ,a ))+ 
+            theme(plot.title = element_blank(),
+                  axis.text.x = element_text(size =Fsize, family = "Arial", color = "black", face = "italic",angle = 90, hjust =1, vjust =0.3),
+                  axis.text.y = element_text(size =Fsize, family = "Arial", color = "black"),
+                  axis.line = element_line(colour = 'black', size = 0.25),
+                  axis.ticks = element_line(colour = 'black', size = 0.15),
+                  axis.ticks.length = unit(0.05,"cm"),
+                  axis.title = element_blank(), 
+                  strip.text.y = element_blank(),
+                  strip.text.x.top = element_text(size =Fsize, family = "Arial",colour = "black",
+                                                  margin = margin(t = 0.1, r = 0, b = 0.1, l = 0, unit = "cm") ),
+                  strip.background = element_rect(fill = "white",linewidth = 0.35),
+                  strip.background.y =  element_blank(),
+                  strip.placement = "outside",
+                  legend.key.size = unit(0.1, 'in'),
+                  legend.title = element_text(size = Fsize),
+                  legend.text = element_text(size=Fsize-1),
+                  plot.margin = margin(t = 0, r = 0, b = 0, l = 0  ),
+                  legend.position = "bottom"
+          )
+                
+  PDF(paste0("Fig.4C.LLC.Heatmap.Celltype3.",t,".",i), h = 2, w = 6 )
+  print(plot)
+  dev.off()
+}
+}
+
+```
+
+
+##Fig 4E GSEA Running IL2-stat5
+```{r}
+selected.cluster = c("T_CD8")
+GSEA = DE$GSEA_H2
+selected.pathway = "HALLMARK_IL2_STAT5_SIGNALING"
+for(t in c("Day1.5","Day6")){
+  for(c in selected.cluster ){
+    tmp1 = DE[[t]][[c]] %>% as_tibble(rownames = "Genes" ) %>% dplyr::select(Genes, avg_log2FC) %>% arrange(avg_log2FC) %>% deframe()
+    tmp2 = GSEA[[t]][[c]] %>% as.data.frame()
+    rownames(tmp2) = tmp2$pathway
+    BOCDF$cols$Celltype
+    for(p in selected.pathway){
+      tmp3 = paste0("NES = ",tmp2[p,"NES"],"\n p-value = ", tmp2[p,"pval"],"\n adjusted p-value = ", tmp2[p,"padj"])
+    PDF(paste0("Fig.4B.BOC.Bulk.Celltype.GSEAPlot.",c,".",t,".",p),w=5,h=3)
+    print(plotEnrichment(mfgsea_sets[[p]], tmp1 ,gseaParam = 1,ticksSize = 0.3  ) + 
+            ggtitle(paste0(c," | ", t," | ", p),tmp3)  )
+    dev.off()
+    tmp = plotEnrichment(mfgsea_sets[[p]], tmp1 ,1,0.3  ) + 
+      theme_classic() + 
+      theme(plot.title = element_blank() , 
+            axis.title = element_blank(),
+            axis.text.x = element_text(size =5, family = "Arial", color = "black"),
+            axis.text.y = element_text(size =5, family = "Arial", color = "black"),
+            axis.line = element_line(colour = 'black', size = 0.25),
+            axis.ticks = element_line(colour = 'black', size = 0.15),
+            plot.margin = margin(t = 0, r = 0, b = 0, l = 0  )  )
+    a = tmp$layers[[3]]$data
+    tmp$layers[[6]]$mapping$y = as.numeric(a-0.1)
+    tmp$layers[[6]]$mapping$yend= as.numeric(a-0.2)
+    tmp$layers[[6]]$aes_params$size=0.13
+    tmp$layers[[6]]$aes_params$colour = col2[c]
+    tmp$layers[[5]] = geom_line(color =col1[c],size=0.25)
+    tmp$layers[[2]]$aes_params$colour = "black"
+    tmp$layers[[3]]$aes_params$colour = "black"
+    tmp$layers[[1]] = NULL
+    #tmp$layers[[1]]$aes_params$colour = col1[c]
+    #tmp$layers[[1]]$aes_params$size = 0.01
+    PDF(paste0("Fig.4E.LLC.Celltype3.GSEAPlot.",c,".",t,".",p,".UL"),w=1.5,h=0.7)
+    print(tmp )
+    dev.off()
+    }
+  }
+}
+```
+##Fig 4E2 Heatmap IL2R 
+```{r}
+df = LLCDF$df.DE.Celltype3
+selected.cluster = c("T_CD4","T_CD8")
+for(i in c("IL2R") ){
+  selected.genes = unlist( geneSet[[i]] ) %>% unique()
+  df1 = filter(df, Genes %in% selected.genes ) %>% filter(Cluster %in% selected.cluster)
+  df1$Genes = factor(df1$Genes, levels = selected.genes  ) 
+  Fsize = 5
+  a = max(abs(df1$avg_log2FC))+0.2 
+  plot = ggplot(df1, aes(y = fct_rev(Cluster), x = Genes  ) ) + 
+                 facet_grid(Dataset ~ . , scales = "free", space="free", switch = "y") +
+                  theme_classic() +
+                  geom_tile(color = "white",aes(fill =avg_log2FC)) +  
+                  scale_fill_gradientn(colours = Col.HiLow.7Shades,
+                         values =  c( 0,0.45,0.5,0.55,  1 ),                                 
+                         limits = c(-a,a) ) +
+    theme(plot.title = element_blank(),
+          axis.text.x = element_text(size =Fsize, family = "Arial", color = "black", face = "italic",angle = 90, hjust =1, vjust =0.3),
+          axis.text.y = element_text(size =Fsize, family = "Arial", color = "black"),
+          axis.line = element_line(colour = 'black', size = 0.25),
+          axis.ticks = element_line(colour = 'black', size = 0.15),
+          axis.ticks.length = unit(0.05,"cm"),
+          axis.title = element_blank(), 
+          strip.text.y = element_text(size =Fsize, family = "Arial",colour = "black",
+                                          margin = margin(t = 0.1, r = 0, b = 0.1, l = 0, unit = "cm") ),
+          strip.background = element_rect(fill = "white",linewidth = 0.35),
+          strip.placement = "outside",
+          legend.key.size = unit(0.1, 'in'),
+                        legend.title = element_text(size = Fsize),
+                        legend.text = element_text(size=Fsize-1),
+          plot.margin = margin(t = 0, r = 0, b = 0, l = 0  ),
+          legend.position = "right"
+          )
+                  
+                
+  PDF(paste0("Fig.4E2.LLC.Heatmap.Celltype3.L.",i), h = 0.85, w = 1.6 )
+  print(plot)
+  dev.off()
+}
+
+
+```
+##Fig 4B New
+```{r}
+DE = readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/DE.LLC.Celltype2.GSEA.230906.rds")
+DE$GSEA_H2$Day1.5$NK
+GSEA = DE$GSEA_H2
+df = data.frame()
+for(t in names(GSEA)){
+  for(c in names(GSEA[[t]] )){
+    tmp1 = GSEA[[t]][[c]]
+    tmp1$Time = t
+    tmp1$Cluster = c
+    df = rbind(df,tmp1)
+  }
+}
+df$Cluster = factor(df$Cluster, levels = names(DE$Day6))
+
+selected.pathway = c("HALLMARK_TNFA_SIGNALING_VIA_NFKB","HALLMARK_INFLAMMATORY_RESPONSE","HALLMARK_INTERFERON_GAMMA_RESPONSE","HALLMARK_OXIDATIVE_PHOSPHORYLATION","HALLMARK_MYC_TARGETS_V2","HALLMARK_MTORC1_SIGNALING","HALLMARK_GLYCOLYSIS","HALLMARK_IL2_STAT5_SIGNALING","HALLMARK_MYC_TARGETS_V1")
+
+selected.pathway = names(fgsea_sets_H)
+df$pathway =factor(df$pathway, arrange(GSEA$Day1.5$Mono,desc(NES) )$pathway )
+df
+for(i in 1){
+  df1 = filter(df, pathway %in% selected.pathway )
+  a = max(abs(df1$NES ))+0.2 
+  PDF(paste0("Ext.Fig.new.6A.LLC1.GSEA.heatmap"), h = 5, w = 4 )
+  print(
+    ggplot(df1, aes(x = Cluster, y = fct_rev(pathway), fill = NES)) +
+    facet_grid(.~ Time) + 
+    geom_tile(colour = "white", aes(fill = NES)) + 
+    scale_fill_gradientn(colours = Col.HiLow.7Shades,
+                         values = c(0,0.2,0.3,0.5,0.7,0.8,1),
+                         name = "NES",
+                         breaks = c(-3,-1.5,0,1.5,3),
+                         limit = c(-a,a))+
+    theme_classic()+
+    theme(plot.title = element_blank(),
+          axis.text.x = element_text(size =Fsize, family = "Arial", color = "black",angle = 90, hjust =1, vjust =0.3),
+          axis.text.y = element_text(size =Fsize, family = "Arial", color = "black"),
+          axis.line = element_line(colour = 'black', linewidth = 0.25),
+          axis.ticks = element_line(colour = 'black', linewidth = 0.15),
+          axis.ticks.length = unit(0.05,"cm"),
+          axis.title = element_blank(), 
+          strip.text.y = element_blank(),
+          strip.text.x.top = element_text(size =Fsize, family = "Arial",colour = "black",
+                                          margin = margin(t = 0.02, r = 0, b = 0.02, l = 0, unit = "cm") ),
+          strip.background = element_rect(fill = "white",linewidth = 0.35),
+          strip.background.y =  element_blank(),
+          strip.placement = "outside",
+          legend.key.size = unit(0.1, 'in'),
+                        legend.title = element_text(size = Fsize,family = "Arial", color = "black"),
+                        legend.text = element_text(size=Fsize-1,family = "Arial", color = "black",angle = 90,hjust=0.2,vjust =0.5),
+          plot.margin = margin(t = 0, r = 0, b = 0, l = 0  ),
+          legend.position = "bottom"
+          )
+  )
+  dev.off()
+}
+
+
+```
+
+
+
+##Supplement
+###Number of up/downregulated genes
+```{r}
+#DE <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/DE.LLC.Celltype3.230719.rds")
+df = data.frame(matrix(ncol=4,nrow = 0))
+colnames(df) = c("Cluster","Dataset","Downregulated","Upregulated")
+for(t in c("Day1.5")){
+  for(c in names(DE[[t]]) ){
+    df1 = DE[[t]][[c]] %>% filter(p_val <0.05)
+    tmp = summary(df1$avg_log2FC > 0 )
+    df[c,] = c(c,t,tmp["FALSE"], tmp["TRUE"])
+  }
+}
+df$Dataset = "Day1.5"
+tmp1 = df
+
+df = data.frame(matrix(ncol=4,nrow = 0))
+colnames(df) = c("Cluster","Dataset","Downregulated","Upregulated")
+for(t in c("Day6")){
+  for(c in names(DE[[t]]) ){
+    df1 = DE[[t]][[c]]  %>% filter(p_val <0.05)
+    tmp = summary(df1$avg_log2FC > 0 )
+    df[c,] = c(c,t,tmp["FALSE"], tmp["TRUE"])
+  }
+}
+df$Dataset = "Day6"
+df = rbind(tmp1,df) %>% as_tibble()
+df = gather(df, key = "Change",value = "Number", -Cluster, -Dataset)
+df$Cluster = factor(df$Cluster, levels = names(DE$Day6))
+for(i in 1){
+  PDF("Fig.4B.Number_of_DE",w=8,h=5)
+  print(
+    ggplot(df, aes(y=fct_rev(Cluster), x = Number ) )+
+      geom_bar(stat = "identity",fill = "black") + 
+      #scale_fill_manual(values = c("firebrick","dodgerblue4")) +
+      theme_classic() +
+      xlim(0,6500)+
+      facet_grid(Dataset~Change, scales = "free", space="free",switch = "y") +
+      theme(axis.text = element_text(color = "black"),
+        axis.text.y = element_text(size = 12,color="black"),
+        axis.text.x = element_text(size = 12,color="black"),
+        axis.title.y = element_blank(),
+        strip.text.x = element_text(size = 12),
+        strip.text.y.left = element_text(size = 12,angle=0),
+        strip.placement = "outside") 
+  )
+  dev.off()
+}
+
+```
+###GSEA Myc/IFNG
+```{r}
+DE = readRDS("~/RStudioProject/LLC/DE.LLC.Celltype3.230719.rds")
+
+selected.pathway = c("HALLMARK_INTERFERON_GAMMA_RESPONSE","HALLMARK_MYC_TARGETS_V1")
+selected.cluster = names(DE$Day6)
+
+for(t in c("Day1.5","Day6")){
+  for(c in selected.cluster ){
+    tmp1 = DE[[t]][[c]] %>% as_tibble(rownames = "Genes" ) %>% dplyr::select(Genes, avg_log2FC) %>% arrange(avg_log2FC)
+    ranks = deframe(tmp1)
+    tmp2 = GSEA[[t]][[c]] %>% as.data.frame()
+    rownames(tmp2) = tmp2$pathway
+    for(p in selected.pathway){
+      tmp3 = paste0("NES = ",tmp2[p,"NES"],"\n p-value = ", tmp2[p,"pval"],"\n adjusted p-value = ", tmp2[p,"padj"])
+      tmp = plotEnrichment(mfgsea_sets[[p]], ranks,0.5,0.3  ) + 
+        ggtitle(paste0(c," | ",t," | ", p)) + 
+        labs(subtitle = tmp3) +
+        theme_classic() + 
+        theme(title = element_text(size=5), axis.title = element_blank(),axis.text = element_text(color = "black"))
+      tmp$layers[[1]]$aes_params$shape = 21
+      tmp$layers[[1]]$aes_params$colour = "black"
+      tmp$layers[[1]]$aes_params$fill = "firebrick"
+      tmp$layers[[1]]$aes_params$size= 3 
+      tmp$layers[[6]]$mapping$y = 0
+      tmp$layers[[6]]$mapping$yend= 0
+      tmp$layers[[5]] = NULL
+      tmp$layers[[2]]$aes_params$colour = "black"
+      tmp$layers[[3]]$aes_params$colour = "black"
+      PNG(paste0("Spplement.1.LLC.Celltype3.GSEAPlot.",p,".",c,".",t),w=5,h=3,r=300)
+      #PDF(paste0("Fig.4E.Unlabel.LLC.",c,".Celltype3.GSEAPlot.",t,".",p),w=5,h=1.8)
+      print(tmp )
+      dev.off()
+    }
+  }
+}
+
+```
+
+###GSEA NES as position [All cluster + Time]
+```{r}
+DE <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/DE.LLC.Celltype3.230719.rds")
+GSEA = readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/GSEA.LLC.Celltype3.nperm50k.230823.rds")
+selected.pathway = c("HALLMARK_TNFA_SIGNALING_VIA_NFKB","HALLMARK_INFLAMMATORY_RESPONSE" ,"HALLMARK_OXIDATIVE_PHOSPHORYLATION","KEGG_RIBOSOME","HALLMARK_MYC_TARGETS_V1","HALLMARK_GLYCOLYSIS","HALLMARK_INTERFERON_GAMMA_RESPONSE","HALLMARK_IL2_STAT5_SIGNALING","HALLMARK_MTORC1_SIGNALING"    )
+selected.pathway = c("HALLMARK_OXIDATIVE_PHOSPHORYLATION","KEGG_RIBOSOME","HALLMARK_MYC_TARGETS_V1")
+selected.pathway = c("HALLMARK_OXIDATIVE_PHOSPHORYLATION")
+
+selected.cluster = c("NK","T_CD8","T_CD4","TAN","Mono","TAM","cDC1","cDC2","mregDC")
+df = data.frame()
+for(t in c("Day1.5","Day6")){
+  for(c in selected.cluster ){
+  #for(c in c("T_CD8","Mono","TAM")){
+    tmp1 = GSEA[[t]][[c]] %>% as.data.frame() %>% filter(pathway %in% selected.pathway)
+    tmp1$Cluster = c
+    tmp1$Time = t
+    df = rbind(df,tmp1)
+  }
+}
+df$pathway = factor(df$pathway, levels = selected.pathway)
+df$Cluster = factor(df$Cluster, levels = selected.cluster )
+df$Change = "Upregulated"
+df$Change[c(df$NES < 0 )] = "Downregulated"
+df$Change = factor(df$Change, levels = c("Upregulated","Downregulated"))
+a = max(abs(df$NES)) %>% ceiling()
+for(i in 1){
+  #PDF(paste0("Temporary.Fig.4B1.LLC.NES.All.plot.v2"),w=20,h=18)
+  PDF(paste0("Temporary.Fig.4B1.LLC.NES.OXPHOS.plot.v2"),w=14,h=3)
+  print(
+    ggplot(df, aes(y=fct_rev(Cluster), x = NES ))+
+      geom_bar(stat = "identity",aes(fill = Change)) + 
+      scale_fill_manual(values = c("firebrick","dodgerblue4")) +
+      theme_classic() +
+      xlim(-a,a)+
+      facet_grid(pathway~Time, scales = "free", space="free",switch = "y") +
+      theme(axis.text = element_text(color = "black"),
+        axis.text.y = element_text(size = 12,color="black"),
+        axis.text.x = element_text(size = 12,color="black"),
+        axis.title.y = element_blank(),
+        strip.text.x = element_text(size = 12),
+        strip.text.y.left = element_text(size = 12,angle=0),
+        strip.placement = "outside") 
+  )
+  dev.off()
+}
+```
+
+
+###Heatmap (scale.exp) IFNG
+```{r}
+
+DimPlot(TNK)
+tmp1 = subset(TNK,idents = "T_CD8")
+Idents(tmp1) = tmp1$Batch
+tmp1A = subset(tmp1,)
+tmp2 = subset(TNK, idents="NK")
+Idents(tmp2) = tmp2$ID
+tmp3 = subset(TNK, idents = "T_GammaDelta")
+Idents(tmp3) = tmp3$ID
+
+tmp4 = DotPlot(tmp1, features = geneSet$IFNG)$data
+DotPlot(tmp1, features = geneSet$IFNG) + 
+  geom_tile(aes(fill = avg.exp.scaled) )+
+  scale_fill_gradientn(colours = Col.HiLow.9Shades)
+tmp4
+for(c in c("T_CD8","NK","T_GammaDelta")){
+  tmp1 = subset(TNK,idents = c)
+  tmp2 = subset(tmp1, Batch == "Day1.5")
+  tmp3 = subset(tmp1, Batch == "Day6")
+  Idents(tmp2) = tmp2$ID
+  Idents(tmp3) = tmp2$ID
+  print(
+    DotPlot(tmp2, features = geneSet$IFNG) + 
+      geom_tile(aes(fill = avg.exp.scaled) )+
+      scale_fill_gradientn(colours = Col.HiLow.9Shades)+
+      ggtitle(c, " | Day1.5")
+    
+  )
+  print(
+    DotPlot(tmp3, features = geneSet$IFNG) + 
+      geom_tile(aes(fill = avg.exp.scaled) )+
+      scale_fill_gradientn(colours = Col.HiLow.9Shades)+
+      ggtitle(c, " | Day6")
+    
+  )
+}
+```
+
+#Figure 5 (Xue/Schultze Human Macrophage )
+##Fig 5D Xue: GSEA Running
+```{r}
+DE = readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/PublicBulkRNA/GSE47189.Xue.Schultze.Macrophage/DE.Xue.230909.rds")
+GSEA = DE$GSEA2
+
+selected.data = names(GSEA)[c(1,5,6)]
+
+selected.pathway = c( "MOOTHA_PGC", "HALLMARK_MYC_TARGETS_V1")
+
+for(i in selected.data  ){
+  tmp1 = DE[[i]] %>% dplyr::select(Symbol, logFC ) %>% arrange(logFC) %>% as_tibble()
+  colnames(tmp1) = c("Genes", "log2FoldChange")
+  tmp1 = tmp1[!is.na(tmp1$Genes),]
+  tmp1 = tmp1[!is.na(tmp1$log2FoldChange ),]
+  tmp2 = GSEA[[i]] %>% as.data.frame()
+  rownames(tmp2) = tmp2$pathway
+  ranks = deframe(tmp1)
+  for(p in selected.pathway){
+    tmp3 = paste0("NES = ",tmp2[p,"NES"],"\n p-value = ", tmp2[p,"pval"],"\n adjusted p-value = ", tmp2[p,"padj"])
+    PNG(paste0("Fig.5D.Xue.GSEAPlot.Label.",i,".",p),w=6,h=3)
+    print(plotEnrichment(fgsea_sets[[p]], ranks,gseaParam = 1,ticksSize = 0.3  ) + ggtitle(paste0(i," | ", p),tmp3)  )
+    dev.off()
+  }
+}
+
+#col1 = c("#40A8A8","#FED460","#E57377")
+col1 = c("#162586","#FF6310","#3E8750")
+names(col1) = selected.data
+#col2 = c("cyan4","#fcb900","#d51f24")
+col2 = c("#06167D","#FF5800","#317E44")
+names(col2) = selected.data
+
+selected.pathway = c("HALLMARK_MYC_TARGETS_V1")
+for(i in selected.data  ){
+    tmp1 = DE[[i]] %>% dplyr::select(Symbol, logFC ) %>% arrange(logFC) %>% as_tibble()
+    colnames(tmp1) = c("Genes", "log2FoldChange")
+    tmp1 = tmp1[!is.na(tmp1$Genes),]
+    tmp1 = tmp1[!is.na(tmp1$log2FoldChange ),]
+    tmp2 = GSEA[[i]] %>% as.data.frame()
+    rownames(tmp2) = tmp2$pathway
+    ranks = deframe(tmp1)
+    for(p in selected.pathway){
+      tmp = plotEnrichment(fgsea_sets[[p]], ranks ,1,0.3  ) + 
+      theme_classic() + 
+      theme(plot.title = element_blank() , 
+            axis.title = element_blank(),
+            axis.text.x = element_text(size =5, family = "Arial", color = "black"),
+            axis.text.y = element_text(size =5, family = "Arial", color = "black"),
+            axis.line = element_line(colour = 'black', size = 0.15),
+            axis.ticks = element_line(colour = 'black', size = 0.1),
+            plot.margin = margin(t = 0, r = 0, b = 0, l = 0  )  )+ 
+      xlim(0,50000) +
+        scale_y_continuous(breaks = c(-1,-0.5,0,0.5,1), limits = c(-1,1)) 
+    tmp$layers[[6]]$mapping$y = -0.8
+    tmp$layers[[6]]$mapping$yend= -0.9
+    tmp$layers[[6]]$aes_params$size=0.13
+    tmp$layers[[6]]$aes_params$colour = col2[i]
+    tmp$layers[[5]] = geom_line(color =col1[i],size=0.25)
+    tmp$layers[[3]] = NULL
+    tmp$layers[[2]] = NULL
+    tmp$layers[[1]] = NULL
+    PDF(paste0("Fig.5D.Xue.GSEAPlot.",p,".",i),w=1.5,h=1.5)
+    print(tmp )
+    dev.off()
+    }
+}
+
+selected.pathway = c( "MOOTHA_PGC")
+for(i in selected.data  ){
+    tmp1 = DE[[i]] %>% dplyr::select(Symbol, logFC ) %>% arrange(logFC) %>% as_tibble()
+    colnames(tmp1) = c("Genes", "log2FoldChange")
+    tmp1 = tmp1[!is.na(tmp1$Genes),]
+    tmp1 = tmp1[!is.na(tmp1$log2FoldChange ),]
+    tmp2 = GSEA[[i]] %>% as.data.frame()
+    rownames(tmp2) = tmp2$pathway
+    ranks = deframe(tmp1)
+    for(p in selected.pathway){
+      tmp = plotEnrichment(fgsea_sets[[p]], ranks ,1,0.3  ) + 
+      theme_classic() + 
+      theme(plot.title = element_blank() , 
+            axis.title = element_blank(),
+            axis.text.x = element_text(size =5, family = "Arial", color = "black"),
+            axis.text.y = element_text(size =5, family = "Arial", color = "black"),
+            axis.line = element_line(colour = 'black', size = 0.15),
+            axis.ticks = element_line(colour = 'black', size = 0.1),
+            plot.margin = margin(t = 0, r = 0, b = 0, l = 0  )  )+ 
+      xlim(0,50000) +
+        scale_y_continuous(breaks = c(-1,-0.5,0,0.5,1), limits = c(-0.9,0.5)) 
+    tmp$layers[[6]]$mapping$y = -0.6
+    tmp$layers[[6]]$mapping$yend= -0.7
+    tmp$layers[[6]]$aes_params$size=0.13
+    tmp$layers[[6]]$aes_params$colour = col2[i]
+    tmp$layers[[5]] = geom_line(color =col1[i],size=0.25)
+    tmp$layers[[3]] = NULL
+    tmp$layers[[2]] = NULL
+    tmp$layers[[1]] = NULL
+    PDF(paste0("Fig.5D.Xue.GSEAPlot.",p,".",i),w=1.65,h=1.2)
+    print(tmp )
+    dev.off()
+    }
+}
+
+#DE$GSEA2$`PGE2-baseline` %>% filter(pathway %in% selected.pathway)
+#DE$GSEA2$`P3C_PGE2-P3C` %>% filter(pathway %in% selected.pathway)
+#DE$GSEA2$`TNFa_PGE2-TNFa` %>% filter(pathway %in% selected.pathway)
+```
+
+##Fig 5C Xue: Heatmap
+
+```{r}
+df = DE$DE.df
+
+df$Condition = factor(df$Condition,levels = unique(df$Condition) )
+
+tmp= levels(df$Condition)[c(1,5,6,7)]
+GeneSet$DE$ETC.selected
+for(i in c("ETC.Ref2","Ribosome")){
+  selected.genes = GeneSet$DE[[i]] %>% unlist() %>% unique()
+  df1 = filter(df, Symbol %in% selected.genes) %>% filter(Condition %in% tmp)
+  df1$Genes = df1$Symbol
+  df1$avg_log2FC = df1$logFC
+  df1 = GeneGroup(df1, GeneSet$DE[[i]] )
+  Fsize = 5
+  a = max(abs(df1$avg_log2FC))+0.2 
+  plot = ggplot(df1, aes(y = fct_rev(Condition) , x = Genes  ) ) + 
+    facet_grid(.~ Set, scales = "free", space="free", switch = "y") + 
+    theme_classic() + 
+    geom_tile(color = "white",aes(fill =avg_log2FC)) +  
+    scale_fill_gradientn(colours = Col.HiLow.7Shades,
+                         name = "log2 fold change\n(PGE2/Control)",
+                         values =  c( 0,0.2,0.45,0.5,0.55,0.8,  1 ),   
+                         breaks = c(-1.5,-0.75,0,0.75,1.5),
+                         limits = c(-1.5,1.5) ) +
+    theme(plot.title = element_blank(),
+          axis.text.x = element_text(size =Fsize, family = "Arial", color = "black", face = "italic",angle = 90, hjust =1, vjust =0.3),
+          axis.text.y = element_text(size =Fsize, family = "Arial", color = "black"),
+          axis.line = element_line(colour = 'black', linewidth = 0.25),
+          axis.ticks = element_line(colour = 'black', linewidth = 0.15),
+          axis.ticks.length = unit(0.05,"cm"),
+          axis.title = element_blank(), 
+          strip.text.y = element_blank(),
+          strip.text.x.top = element_text(size =Fsize, family = "Arial",colour = "black",
+                                          margin = margin(t = 0.02, r = 0, b = 0.02, l = 0, unit = "cm") ),
+          strip.background = element_rect(fill = "white",linewidth = 0.35),
+          strip.background.y =  element_blank(),
+          strip.placement = "outside",
+          legend.key.size = unit(0.1, 'in'),
+                        legend.title = element_text(size = Fsize,family = "Arial", color = "black"),
+                        legend.text = element_text(size=Fsize-1,family = "Arial", color = "black"),
+          plot.margin = margin(t = 0, r = 0, b = 0, l = 0  ),
+          legend.position = "bottom"
+          )
+                
+  PDF(paste0("Fig.5C.Xue.Heatmap.FC.",i), h = 1.25, w = (1.5+ (length(unique(df1$Genes))*0.07) ) )
+  print(plot)
+  dev.off()
+}
+plot$data
+```
+
+#Figure 6 (Invitro/T cell)
+##Fig 6B1 Heatmap(Scale) ETC/Ribosome(All) 24hr
+```{r}
+M23DF = readRDS("M23DF.rds")
+tmp1 = M23DF$M2321$Scale # %>% as_tibble(rownames = "Genes")
+tmp1$Time = "24hr"
+df = tmp1 %>% gather(key ="Sample", value = "Expression",-Time,-Genes) %>% filter(!Expression == "NaN")
+df$Sample = factor(df$Sample, levels = c("Veh1","Veh2","Veh3","PGE2_1","PGE2_2","PGE2_3"))
+
+for(i in c("ETC","Ribosome2")  ){
+  tmp = GeneGroup(df,  geneSet[[i]] )
+  #PNG(paste0("Fig.6B.CD8_RNA-seq.Heatmap(Scale).",i), h = 12, w = c(2.5 + (length(unique(tmp$Genes))*0.3) ))
+  PNG(paste0("Fig.6B.CD8_RNA-seq.Heatmap(Scale).24hr.",i), h = 4, w = c(2.5 + (length(unique(tmp$Genes))*0.3) ))
+  print(
+    ggplot(tmp, aes(x = Genes, y = fct_rev(Sample)  ) ) + 
+      facet_grid(.~ Set , scales = "free", space="free", switch = "y")+
+      geom_tile(color = "white",aes(fill =Expression) ) +  
+      scale_fill_gradientn(colours = Col.HiLow.9Shades, values = scales::rescale(c(min(tmp$Expression),-0.5,0,0.5,max(tmp$Expression ) ) ) )+
+      theme_classic() + Dot_axis90A + 
+      theme(plot.title = element_blank(),
+                        axis.title = element_blank(), 
+                        axis.text.x = element_text(size =16, face = "italic", color = "black"),
+                        axis.text.y = element_text(size =16, face = "plain", color = "black"),
+                        strip.text.y.left = element_text(size =18, face = "bold", color = "black",angle = 0),
+                        strip.text.x.top = element_text(size =18, face = "bold", color = "black",angle = 0),
+                        strip.background = element_rect(fill = "white"),
+                        strip.placement = "outside",
+                        legend.position = "bottom"
+                        )+
+      ggtitle(i)
+  )
+  dev.off()
+}
+
+```
+
+##Fig 6B1 Heatmap(Scale) ETC/Ribosome(selected) 24hr
+```{r}
+tmp1 = M23DF$M2321$Scale # %>% as_tibble(rownames = "Genes")
+tmp1$Time = "24hr"
+df = tmp1 %>% gather(key ="Sample", value = "Expression",-Time,-Genes) %>% filter(!Expression == "NaN")
+df$Sample = factor(df$Sample, levels = c("Veh1","Veh2","Veh3","PGE2_1","PGE2_2","PGE2_3"))
+
+df1 = GeneGroup(df,c(geneSet$ETC.selected2,geneSet$Ribosome.selected ) )
+for(i in "ETC.Ribosome"  ){
+  tmp = df1
+  #PNG(paste0("Fig.6B.CD8_RNA-seq.Heatmap(Scale).",i), h = 12, w = c(2.5 + (length(unique(tmp$Genes))*0.3) ))
+  PDF(paste0("Fig.6B.CD8_RNA-seq.Heatmap(Scale).24hr.",i), h = 4, w = c(2.5 + (length(unique(tmp$Genes))*0.3) ))
+  print(
+    ggplot(tmp, aes(x = Genes, y = fct_rev(Sample)  ) ) + 
+      facet_grid(.~ Set , scales = "free", space="free", switch = "y")+
+      geom_tile(color = "white",aes(fill =Expression) ) +  
+      scale_fill_gradientn(colours = Col.HiLow.9Shades, values = scales::rescale(c(min(tmp$Expression),-0.5,0,0.5,max(tmp$Expression ) ) ) )+
+      theme_classic() + Dot_axis90A + 
+      theme(plot.title = element_blank(),
+                        axis.title = element_blank(), 
+                        axis.text.x = element_text(size =16, face = "italic", color = "black"),
+                        axis.text.y = element_text(size =16, face = "plain", color = "black"),
+                        strip.text.y.left = element_text(size =18, face = "bold", color = "black",angle = 0),
+                        strip.text.x.top = element_text(size =18, face = "bold", color = "black",angle = 0),
+                        strip.background = element_rect(fill = "white"),
+                        strip.placement = "outside",
+                        legend.position = "bottom"
+                        )+
+      ggtitle(i)
+  )
+  dev.off()
+}
+filter(M23DF$M2331$NormalizedCount, Genes %in% geneSet$Glycolysis2)
+
+```
+
+
+##Fig 6C1 Heatmap(FC) IL2
+```{r}
+tmp1 = M23DF$M2321$DE %>% as_tibble(rownames = "Genes")
+tmp1$Time = "24hr"
+tmp2 = M23DF$M2328$DE %>% as_tibble(rownames = "Genes")
+tmp2$Time = "48hr"
+tmp3 = M23DF$M2331$DE %>% as_tibble(rownames = "Genes")
+tmp3$Time = "60hr"
+df = rbind(tmp1,tmp2,tmp3)
+
+for(i in "IL2R" ){
+  selected.genes = unlist( geneSet[[i]] ) %>% unique()
+  df1 = filter(df, Genes %in% selected.genes ) 
+  df1 = df1[complete.cases(df1),]
+  df1$Genes = factor(df1$Genes, levels = selected.genes  )
+  df1 = pCat(df1,"padj")
+  a = max(abs(df1$log2FoldChange))+0.2 
+  plot = ggplot(df1, aes(y = Time, x = Genes  ) ) + 
+    theme_classic() +
+    geom_tile(color = "white",aes(fill =log2FoldChange)) +  
+    scale_fill_gradientn(colours = Col.HiLow.9Shades, values = c(0,0.45,0.5,0.55,1),limits = c(-a,a)  )+
+     theme(plot.title = element_blank(),
+          axis.text.x = element_text(size =Fsize, family = "Arial", color = "black", face = "italic",angle = 90, hjust =1, vjust =0.3),
+          axis.text.y = element_text(size =Fsize, family = "Arial", color = "black"),
+          axis.line = element_line(colour = 'black', size = 0.25),
+          axis.ticks = element_line(colour = 'black', size = 0.15),
+          axis.ticks.length = unit(0.05,"cm"),
+          axis.title = element_blank(), 
+          strip.text.y = element_blank(),
+          strip.text.x.top = element_text(size =Fsize, family = "Arial",colour = "black",
+                                          margin = margin(t = 0.1, r = 0, b = 0.1, l = 0, unit = "cm") ),
+          strip.background = element_rect(fill = "white",linewidth = 0.35),
+          strip.background.y =  element_blank(),
+          strip.placement = "outside",
+          legend.key.size = unit(0.1, 'in'),
+                        legend.title = element_text(size = Fsize),
+                        legend.text = element_text(size=Fsize-1),
+          plot.margin = margin(t = 0, r = 0, b = 0, l = 0  ),
+          legend.position = "right")
+                
+  PDF(paste0("Fig.6B.CD8_RNA-seq.Heatmap(FC).",i), h = 0.6, w = 1.5 )
+  print(plot)
+  dev.off()
+}
+```
+##Fig 6C2 Heatmap(Scale) IL2
+```{r}
+tmp1 = M23DF$M2321$Scale
+tmp1$Time = "24hr"
+tmp2 = M23DF$M2328$Scale 
+tmp2$Time = "48hr"
+tmp3 = M23DF$M2331$Scale 
+tmp3$Time = "60hr"
+df = rbind(tmp1,tmp2,tmp3) %>% gather(key ="Sample", value = "Expression",-Time,-Genes) %>% filter(!Expression == "NaN")
+df$Sample = factor(df$Sample, levels = c("Veh1","Veh2","Veh3","PGE2_1","PGE2_2","PGE2_3"))
+for(i in "IL2R" ){
+  tmp = filter(df, Genes %in% geneSet[[i]])
+  PDF(paste0("Fig.6C.CD8_RNA-seq.Heatmap(Scale).",i), h =1.25,w=1.75 )
+  print(
+    ggplot(tmp, aes(x = Sample, y = fct_rev(Genes)  ) ) + 
+      facet_grid(. ~ Time , scales = "free", space="free", switch = "y")+
+      geom_tile(color = "white",aes(fill =Expression) ) +  
+      scale_fill_gradientn(colours = Col.HiLow.9Shades, values =  c(0,0.45,0.5,0.55,1), limits = c(-a,a)  )+
+      theme_classic() + 
+      theme(plot.title = element_blank(),
+          axis.text.x = element_text(size =Fsize, family = "Arial", color = "black",angle = 90, hjust =1, vjust =0.3),
+          axis.text.y = element_text(size =Fsize, family = "Arial", color = "black", face = "italic"),
+          axis.line = element_line(colour = 'black', size = 0.25),
+          axis.ticks = element_line(colour = 'black', size = 0.15),
+          axis.ticks.length = unit(0.05,"cm"),
+          axis.title = element_blank(), 
+          strip.text.y = element_blank(),
+          strip.text.x.top = element_text(size =Fsize, family = "Arial",colour = "black",
+                                          margin = margin(t = 0.1, r = 0, b = 0.1, l = 0, unit = "cm") ),
+          strip.background = element_rect(fill = "white",linewidth = 0.35),
+          strip.background.y =  element_blank(),
+          strip.placement = "outside",
+          legend.key.size = unit(0.1, 'in'),
+                        legend.title = element_text(size = Fsize),
+                        legend.text = element_text(size=Fsize-1),
+          
+          plot.margin = margin(t = 0, r = 0, b = 0, l = 0  ),
+          legend.position = "bottom"
+          )
+  )
+  dev.off()
+}
+
+```
+
+
+##Fig 6F Heatmap(Scale) Glycolysis 24-48-60hr
+```{r}
+tmp1 = M23DF$M2321$Scale # %>% as_tibble(rownames = "Genes")
+tmp1$Time = "24hr"
+tmp2 = M23DF$M2328$Scale # %>% as_tibble(rownames = "Genes")
+tmp2$Time = "48hr"
+tmp3 = M23DF$M2331$Scale # %>% as_tibble(rownames = "Genes")
+tmp3$Time = "60hr"
+df = rbind(tmp1,tmp2,tmp3) %>% gather(key ="Sample", value = "Expression",-Time,-Genes) %>% filter(!Expression == "NaN")
+df$Sample = factor(df$Sample, levels = c("Veh1","Veh2","Veh3","PGE2_1","PGE2_2","PGE2_3"))
+
+for(i in c("Glycolysis3") ){
+  tmp = filter(df, Genes %in% unlist(geneSet[[i]]))
+  tmp$Set = "Glycolysis"
+  #PNG(paste0("Fig.6B.CD8_RNA-seq.Heatmap(Scale).",i), h = 12, w = c(2.5 + (length(unique(tmp$Genes))*0.3) ))
+  PDF(paste0("Fig.6F.CD8_RNA-seq.Heatmap(Scale).V2.",i), h = 8, w = c(2.5 + (length(unique(tmp$Genes))*0.3) ))
+  print(
+    ggplot(tmp, aes(x = Genes, y = fct_rev(Sample)  ) ) + 
+      facet_grid(Time ~ Set , scales = "free", space="free", switch = "y")+
+      geom_tile(color = "white",aes(fill =Expression) ) +  
+      scale_fill_gradientn(colours = Col.HiLow.9Shades, values = scales::rescale(c(min(tmp$Expression),-0.5,0,0.5,max(tmp$Expression ) ) ) )+
+      theme_classic() + Dot_axis90A + 
+      theme(plot.title = element_blank(),
+                        axis.title = element_blank(), 
+                        axis.text.x = element_text(size =16, face = "italic", color = "black"),
+                        axis.text.y = element_text(size =16, face = "plain", color = "black"),
+                        strip.text.y.left = element_text(size =18, face = "bold", color = "black",angle = 0),
+                        strip.text.x.top = element_text(size =18, face = "bold", color = "black",angle = 0),
+                        strip.background = element_rect(fill = "white"),
+                        strip.placement = "outside",
+                        legend.position = "bottom"
+                        )+
+      ggtitle(i)
+  )
+  dev.off()
+}
+
+```
+
+##Fig 6G GSEA [Running] BOC Glycolysis
+```{r}
+DE <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC.DE_Bulk.Celltype.Converted.GSEA_nperm50K.230821.rds")
+DE <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC.DE_Bulk.Celltype.Converted.GSEA_nperm50K.2300901.rds")
+selected.pathway = c("MOOTHA_GLYCOLYSIS")
+GSEA = DE$GSEA2
+
+tmp4 = c("#D51F24","#fcb900")
+names(tmp4) = c("T_CD8","TIM")
+tmp5 = c("#EE5358","#FFD256")
+names(tmp5) = c("T_CD8","TIM")
+
+for(i in c("T_CD8","TIM")){
+  tmp1 = DE[[i]][["High-Low"]] %>% as_tibble(rownames = "Genes" ) %>% dplyr::select(Genes, avg_log2FC) %>% arrange(avg_log2FC)
+  tmp2 = GSEA[[i]] %>% as.data.frame()
+  rownames(tmp2) = tmp2$pathway
+  ranks = deframe(tmp1)
+  for(p in selected.pathway){
+    tmp3 = paste0("NES = ",tmp2[p,"NES"],"\n p-value = ", tmp2[p,"pval"],"\n adjusted p-value = ", tmp2[p,"padj"])
+    tmp = plotEnrichment(fgsea_sets[[p]], ranks,gseaParam = 1,ticksSize = 0.3  ) + 
+      #ggtitle(paste0(i," | ", p),tmp3) + 
+      theme_classic() + 
+      theme(title = element_text(size=5), axis.title = element_blank(),axis.text = element_text(color = "black"))
+    #tmp$layers[[1]]$aes_params$shape = 21
+    #tmp$layers[[1]]$aes_params$fill = "firebrick"
+    tmp$layers[[1]]$aes_params$colour = tmp4[i]
+    tmp$layers[[1]]$aes_params$size= 0.2
+    a = tmp$layers[[3]]$data
+    tmp$layers[[6]]$mapping$y = as.numeric(a-0.1)
+    tmp$layers[[6]]$mapping$yend= as.numeric(a-0.2)
+    tmp$layers[[6]]$aes_params$size=0.3
+    tmp$layers[[6]]$aes_params$colour = tmp5[i]
+    tmp$layers[[5]]$aes_params$colour = tmp4[i]
+     tmp$layers[[5]]$aes_params$size =1
+    #tmp$layers[[5]] = geom_line(color ="black")
+    #tmp$layers[[5]] = geom_smooth(se = F,color ="black")
+    tmp$layers[[2]]$aes_params$colour = "black"
+    tmp$layers[[3]]$aes_params$colour = "black"
+    PDF(paste0("Fig.6G.BOC.Bulk.Celltype.GSEAPlot.V2.",i,".",p,".Unlabel"),w=4,h=2)
+    print(tmp )
+    dev.off()
+  }
+}
+DE$GSEA$TIM %>% filter(pathway %in% selected.pathway)
+DE2$GSEA2$T_CD8 %>% filter(pathway %in% c(selected.pathway,"MOOTHA_PGC") )
+DE2$GSEA2
+```
+
+###GSEA by GGGSEA
+```{r}
+tmp1  = DE[["T_CD8"]][["High-Low"]] %>% as_tibble(rownames = "Genes" ) %>% dplyr::select(Genes, avg_log2FC) %>% arrange(desc(avg_log2FC))
+ranks = deframe(tmp1)
+tmp2 = list("Mootha_Glycolysis" =fgsea_sets$MOOTHA_GLYCOLYSIS )
+df <- gseaCurve(ranks, tmp2)
+ggplot2::ggplot() +   geom_gsea(df)
+```
+```{r}
+for(i in c(0.2,0.5,1,2)){
+  print(plotEnrichment(fgsea_sets[[p]], ranks,i,1  ) )
+}
+```
+
+#=====================
+#Ext Figure 1 Overview
+##Ext Fig 1A UMAP per cancer
+```{r}
+Idents(BOC) = BOC$Identity.Celltype4
+for(i in unique(BOC$Cancer)){
+  tmp = subset(BOC, Cancer == i)
+  PNG(paste0("Ext.Fig.1A.BOC.DM.pt01.",i),w=6,h=6)
+      print(DimPlot(tmp,label =F,pt.size = 0.1 ,raster = F,
+                    cols = BOCDF$cols$Celltype4
+                    ) + NoLegend() + 
+              theme(axis.title = element_blank(),
+                    axis.text = element_blank(),
+                    axis.line = element_line(colour = 'black', size = 1),
+                    axis.ticks = element_line(colour = 'black', size = 0.7))
+            )
+      dev.off()
+}
+for(i in unique(BOC$Cancer)){
+  tmp = subset(BOC, Cancer == i)
+  PDF(paste0("Ext.Fig.1A.BOC.DM.pt01.",i),w=2,h=2)
+      print(DimPlot(tmp,label =F,pt.size = 0.01 ,raster = F,
+                    cols = BOCDF$cols$Celltype4
+                    ) + NoLegend() + 
+              theme(axis.title = element_text(size=5,family = "Arial"),
+                    axis.text = element_text(size=4,family = "Arial"),
+                    axis.line = element_line(colour = 'black', size = 0.5),
+                    axis.ticks = element_line(colour = 'black', size = 0.3))
+            )
+      dev.off()
+}
+```
+
+##Ext Fig 1B Signature Celltype4 Div
+```{r}
+tmp1 = c("NCAM1","KLRD1","KLRC3","CD8A","GZMH","GZMK","CD4","RORA","IL7R","FOXP3","CTLA4","IL2RA","CSF1R","CSF3R","IL1B","HLA-DRA","HLA-DQB1","CD86","MS4A1","CD79A","TCF4","JCHAIN","IGHG1","IGKC","MKI67","STMN1","HMGB1")
+
+Idents(BOC) = BOC$Identity.Celltype2
+BOC <- RenameIdents(BOC,
+                    'NK' = "NK",
+                    'NK_Dividing' = "NK (Dividing)",
+                    'T_CD8' = "CD8 T cell",
+                    'T_CD8_Dividing' = "CD8 T cell (Dividing)",
+                    'T_CD4' = "CD4 T cell",
+                    'T_CD4_Dividing' = "CD4 T cell (Dividing)",
+                    'T_CD4_FOXP3' = "regulatory T cell",
+                    'T_CD4_FOXP3_Dividing' = "regulatory T cell (Dividing)",
+                    'TAN-PMN' = "TIM",
+                    'TIM' = "TIM",
+                    'TIM_Dividing' = "TIM (Dividing)",
+                    'cDC1' = "DC",
+                    'cDC2' = "DC",
+                    'mregDC' = "DC",
+                    'pDC' = "DC",
+                    'B_cell' = "B cell",
+                    'Plasma_cell' = "Plasma cell",
+                    'B-Plasma_cell_Dividing' = "B cell & Plasma cell (Dividing)")
+BOC$Identity.Celltype4Div = Idents(BOC)
+
+##Signature of Celltype2
+#tmp1 = c(tmp1$gene,"Mki67","STMN1","HIST1H4C","HMFB2","MKI67","TOP2A","TUBA1B") %>% unique()
+Idents(BOC) = RevIden(BOC$Identity.Celltype4Div)
+for(i in 1){
+  PDF("Ext.Fig.1B.BOC.Signature.Celltype4Div",w=3.5,h=2.1,r=500)
+  print(DotPlot(BOC, features = tmp1)  + 
+          scale_viridis + 
+          scale_size(range = c(0.1,1.5),name = "Percent expressed cells")+
+          theme(axis.text.x = element_text(size =4.5, family = "Arial", color = "black", face = "italic",angle = 90, hjust =1, vjust =0.3),
+                axis.text.y = element_text(size =4.5, family = "Arial", color = "black"),
+                axis.line = element_line(colour = 'black', size = 0.5),
+                axis.ticks = element_line(colour = 'black', size = 0.3),
+                axis.ticks.length = unit(0.05,"cm"),
+                legend.position = "bottom",
+                axis.title = element_blank()) )
+  dev.off()
+}
+DotPlot(BOC, features = tmp1) + scale_viridis + Dot_axis90A + Dot_scale
+```
+
+##Ext Fig 1C Violin PG gene
+```{r}
+tmp = FetchData(BOC, vars = c("Identity.Celltype4",GeneSet$PGE2)) %>% as_tibble() %>% gather(key="Genes", value = "Exp", -Identity.Celltype4)
+tmp1 = filter(tmp, Genes %in% c("PTGS1","PTGS2","PTGER1","PTGER2","PTGER3","PTGER4"))
+tmp1$Genes = factor(tmp1$Genes, levels = c("PTGS1","PTGS2","PTGER1","PTGER2","PTGER3","PTGER4") )
+for(i in 1){
+  PNG(paste0("Ext.Fig.1C.BOC.PGE2.Vln"),w = 4,h=7,r=500)
+  print(
+    ggplot(tmp1,aes(x = Identity.Celltype4, y = Exp, fill = Identity.Celltype4)) + 
+      #geom_jitter(size = 0.1,alpha =0.1) + 
+      geom_violin(scale = "width") +
+      scale_fill_manual( values = BOCDF$cols$Celltype4) + 
+      facet_grid(Genes~. , switch = "y" , scales =  "free") +
+      theme_classic()+
+      theme(axis.text = element_text(color = "black"),
+            axis.text.x = element_text(size =5, family = "Arial", color = "black", face = "italic",angle = 90, hjust =1, vjust =0.3),
+            axis.title = element_blank(),
+            strip.text.y.left = element_text(face="italic", size =5,color = "white"),
+            strip.background = element_rect(fill = "black"),
+            strip.placement = "outside") + 
+      NoLegend()
+  )
+  dev.off()
+}
+
+tmp1$Genes = factor(tmp1$Genes, levels = rev(c("PTGS1","PTGS2","PTGER1","PTGER2","PTGER3","PTGER4") ))
+for(i in 1){
+  PDF(paste0("Ext.Fig.1C.BOC.PGE2.Vln.flip_Y_text"),w = 1.7,h=3,r=500)
+  print(
+    ggplot(tmp1,aes(x = Identity.Celltype4, y = Exp, fill = Identity.Celltype4)) + 
+      #geom_jitter(size = 0.1,alpha =0.1) + 
+      geom_violin(scale = "width") +
+      scale_fill_manual( values = BOCDF$cols$Celltype4) + 
+      facet_grid(Genes~. , switch = "y" , scales =  "free") +
+      theme_classic()+
+      theme(axis.text = element_text(color = "black"),
+            axis.text.x = element_text(size =4, family = "Arial", color = "black",angle = 90, hjust =1, vjust =0.3),
+            axis.text.y = element_text(size =4, family = "Arial", color = "black",angle=90,hjust=0.5),
+            axis.title = element_blank(),
+            strip.text.y.left = element_text(face="italic", size =4,color = "white"),
+            strip.background = element_rect(fill = "black"),
+            strip.placement = "outside") + 
+      NoLegend()
+  )
+  dev.off()
+}
+
+```
+##Ext Fig 1D Public data
+```{r}
+Wu <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/SunnyWu2021.Harmony.221024.rds")
+#Wu = Clustering1(Wu, dist = 1, spread = 1,group = "orig.ident" )
+#saveRDS(Wu,"~/RStudioProject/scRNA/Wu.230820.rds")
+Wu = readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/Wu.230820.rds")
+Idents(Wu) = Wu$Identity.primary
+for(i in 1){
+  PNG(paste0("Ext.Fig.1D.Wu.DM"),w = 6,h=6)
+  print(DimPlot(Wu,label=F,pt.size=0.1, cols= c("#52a675","#4267ac","#6a4c93","#ff5c33","#ffca3a","#ff8133","#ff1f26" ),raster = F ) +
+          theme(axis.title = element_blank(),
+                    axis.text = element_blank(),
+                    axis.line = element_line(colour = 'black', size = 1),
+                    axis.ticks = element_line(colour = 'black', size = 0.7))+
+          NoLegend())
+  dev.off()
+  PDF(paste0("Ext.Fig.1D.Wu.DM.L"),w = 8,h=5,r=500)
+  print(DimPlot(Wu,label=T,pt.size=0.01, cols= c("#52a675","#4267ac","#6a4c93","#ff5c33","#ffca3a","#ff8133","#ff1f26" ) ) )
+  dev.off()
+}
+#BOCDF$AllMarkers$Wu.Primary = FindAllMarkers(Wu, max.cells.per.ident = 100)
+#BOCDF$AllMarkers$Wu.Primary  %>% group_by(cluster) %>% top_n(n=30,wt=avg_log2FC)
+tmp1 = c("CD3E","CD8A","RORA","FOXP3","MS4A1","CD79A","CD37","JCHAIN","IGHG1","IGKC","CSF1R","CSF3R","IL1B","KRT8","KRT18","EPCAM","COL1A2","COL6A2","SOD3","PECAM1","VWF","PLVAP")
+df = DotPlot(Wu,features = unique(tmp1) )$data
+for(i in 1){
+  PDF("Ext.Fig.1D.Wu.Signature", w=0.9,h=2.4,r=500)
+  print(ggplot(df, aes(y = fct_rev(features.plot), x = id, fill = avg.exp.scaled)) + 
+          geom_tile(color = "white")+ scale_fill_gradientn(colours = col_viridis2) + theme_classic()+
+          scale_y_discrete(position = "right")+
+          theme(axis.text.x = element_text(size =4, family = "Arial", color = "black",angle = 90, hjust =1, vjust =0.3),
+                axis.text.y = element_text(size =4, family = "Arial", color = "black",face = "italic"),
+                axis.line = element_line(colour = 'black', size = 0.5),
+                axis.ticks = element_line(colour = 'black', size = 0.3),
+                axis.ticks.length = unit(0.05,"cm"),
+                legend.position = "bottom",
+                axis.title = element_blank()) )
+  dev.off()
+}
+for(i in c("PTGS1","PTGS2" ) ){
+  PNG(paste0("Ext.Fig.1D.Wu.FP.V1.NoTitle.",i),h=6,w=6)
+  print(
+    FeaturePlot(Wu, i,pt.size = 0.03, cols = col_orange3,raster = F) +
+      theme(plot.title = element_blank(),
+            axis.title = element_blank(),
+                    axis.text = element_blank(),
+                    axis.line = element_line(colour = 'black', size = 1),
+                    axis.ticks = element_line(colour = 'black', size = 0.7))+
+      NoLegend()
+        )
+  dev.off()
+ }
+Wu = NULL
+```
+
+
+```{r}
+tmp1 = c("CD3E","CD8A","RORA","FOXP3","MS4A1","CD79A","CD37","JCHAIN","IGHG1","IGKC","CSF1R","CSF3R","IL1B","KRT8","KRT18","EPCAM","COL1A2","COL6A2","SOD3","PECAM1","VWF","PLVAP")
+#Weiguo <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA.Public/Weiguo.Harmony.221024.rds")
+#Weiguo = Clustering1(Weiguo, dist =1 , spread =1, group = "Sample")
+#saveRDS(Weiguo, "~/RStudioProject/scRNA/Weiguo.230820.rds")
+Weiguo <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/Weiguo.230820.rds")
+Weiguo$Sample %>% as.factor() %>% summary()
+Weiguo = subset(Weiguo, Sample %in% c("Cancer1","Cancer2","Cancer3","Cancer4","Cancer5","Cancer6","Cancer7"))
+Weiguo = Clustering1(Weiguo, dist =2, spread = 1)
+#Weiguo = RunUMAP(Weiguo, reduction = "harmony", dims = 1:30, min.dist = 2, spread = 1 )
+
+
+Idents(Weiguo) = Weiguo$Identity.primary
+for(i in 1){
+  PNG(paste0("Ext.Fig.1D.Weiguo.DM"),w = 6,h=6)
+  print(DimPlot(Weiguo,label=F,pt.size=0.3,
+                cols= c("#52a675","#4267ac","#6a4c93","#ff5c33","#ffca3a","#ff8133","#ff1f26" ),raster = F  ) +
+          theme(axis.title = element_blank(),
+                    axis.text = element_blank(),
+                    axis.line = element_line(colour = 'black', size = 1),
+                    axis.ticks = element_line(colour = 'black', size = 0.7))+
+          NoLegend() )
+  dev.off()
+  PDF(paste0("Ext.Fig.1D.Weiguo.DM.L"),w = 8,h=5)
+  print(DimPlot(Weiguo,label=T,pt.size=0.3, cols= c("#52a675","#4267ac","#6a4c93","#ff5c33","#ffca3a","#ff8133","#ff1f26" ) ) )
+  dev.off()
+}
+tmp1 = c("CD3E","CD8A","RORA","FOXP3","MS4A1","CD79A","CD37","JCHAIN","IGHG1","IGKC","CSF1R","CSF3R","IL1B","KRT8","KRT18","EPCAM","COL1A2","COL6A2","SOD3","PECAM1","VWF","PLVAP")
+df = DotPlot(Weiguo,features = unique(tmp1) )$data
+for(i in 1){
+  PDF("Ext.Fig.1D.Weiguo.Signature", w=0.9,h=2.4,r=500)
+  print(ggplot(df, aes(y = fct_rev(features.plot), x = id, fill = avg.exp.scaled)) + 
+          geom_tile(color = "white")+ scale_fill_gradientn(colours = col_viridis2) + theme_classic()+
+          scale_y_discrete(position = "right")+
+          theme(axis.text.x = element_text(size =4, family = "Arial", color = "black",angle = 90, hjust =1, vjust =0.3),
+                axis.text.y = element_text(size =4, family = "Arial", color = "black",face = "italic"),
+                axis.line = element_line(colour = 'black', size = 0.5),
+                axis.ticks = element_line(colour = 'black', size = 0.3),
+                axis.ticks.length = unit(0.05,"cm"),
+                legend.position = "bottom",
+                axis.title = element_blank()) )
+  dev.off()
+}  
+  
+for(i in c("PTGS1","PTGS2" ) ){
+  PNG(paste0("Ext.Fig.1D.Weiguo.FP.V1.NoTitle.",i),h=6,w=6)
+  print(
+    FeaturePlot(Weiguo, i,pt.size = 0.3, cols = col_orange3,raster = F) +
+      theme(plot.title = element_blank(),
+            axis.title = element_blank(),
+                    axis.text = element_blank(),
+                    axis.line = element_line(colour = 'black', size = 1),
+                    axis.ticks = element_line(colour = 'black', size = 0.7))+
+      NoLegend()
+        )
+  dev.off()
+}
+
+for(i in c("PTGS2")){
+  PDF(paste0("Ext.Fig.1D.Weiguo.FP.V1.L",i),h=5,w=6,r=500)
+  print(  FeaturePlot(Weiguo, i,pt.size = 0.01, cols = col_orange3, raster = F)      )
+  dev.off()
+}  
+Weiguo = NULL
+```
+
+#Ext Figure 2 BOC CD8
+##Ext Fig 2A Signature of CD8
+```{r}
+BOCDF$AllMarkers$CD8.Subtype1 = FindAllMarkers(CD8, max.cells.per.ident = 100)
+tmp1 = BOCDF$AllMarkers$CD8.Subtype1 %>% group_by(cluster) %>% top_n(n=20, wt =avg_log2FC) %>% unique()
+
+Idents(CD8) = CD8$Identity.Subtype1 
+tmp2 = DotPlot(CD8,features = unique(tmp1$gene))$data  
+for(i in 1){
+  PNG("BOC.CD8.Signature.Unsup",w=40,h=6,r=200)
+  print( 
+    ggplot(tmp2,aes(y = fct_rev(id), x = features.plot, size =pct.exp, color = avg.exp.scaled))+
+      geom_point() + 
+      scale_PRainbow +
+      theme_classic() + 
+      scale_y_discrete(position = "left")+
+      theme(text = element_text(color = "black"),
+            axis.text.y.right = element_text(face="italic",color = "black"),
+            axis.text.x = element_text(angle = 90, hjust=1, vjust =0.3,color = "black"),
+            axis.title = element_blank())
+  )
+  dev.off()
+}
+
+tmp1 = c("CD3D","CD8A","CD8B","TCF7","BACH2","IL7R","GZMK","BCL11B","NAA50","HAVCR2","ENTDP1","ITGAE","GNLY","PRF1","GZMH","IFIT1","ISG15","MX1","RORA","CCR6","IL12RB2","TNFRSF4","TNFRSF18","MAF","FOXP3","BATF","IL2RA","MKI67","STMN1","TOP2A")
+Idents(CD8) = CD8$Identity.Subtype1 
+tmp2 = DotPlot(CD8,features = tmp1)$data  
+for(i in 1){
+  PDF("Ext.Fig.2A.BOC.CD8.Signature.v2",w=3.8,h=2.3)
+  print( 
+    ggplot(tmp2,aes(y = fct_rev(id), x = features.plot, size =pct.exp, color = avg.exp.scaled))+
+      geom_point() + 
+      scale_PRainbow +
+      scale_size(range = c(0.1,2.7),name = "Percent expressed cells",breaks = c(20,40,60,80))+
+      theme_classic() + 
+      theme(plot.title = element_blank(),
+                axis.title = element_blank(),
+                axis.text.x = element_text(size =6, family = "Arial", color = "black", face = "italic",angle = 90, hjust =1, vjust =0.3),
+                axis.text.y = element_text(size =6, family = "Arial", color = "black"),
+                axis.line = element_line(colour = 'black', size = 0.25),
+                axis.ticks = element_line(colour = 'black', size = 0.15),
+                axis.ticks.length = unit(0.05,"cm"),
+                legend.position = "bottom"
+                )
+  )
+}
+```
+
+##[omitted] pct expression PG genes
+```{r}
+Idents(CD8) = CD8$Identity.Subtype1 
+tmp = DotPlot(CD8, features = GeneSet$PGE2[6:9])$data
+tmp$pct.exp.cat = (floor(tmp$pct.exp/10)*10) %>% as.factor()
+for(i in 1){
+  #PNG(paste0("BOC.CD45.CD8.DP.PGE2"),w = 2.2,h=3.4,r=500)
+  PNG(paste0("BOC.CD45.CD8.DP.PGE2.H"),w = 3,h=3,r=500)
+  print(
+    ggplot(tmp, aes(x = id, y = features.plot))+
+      geom_point(colour = "black",pch = 21,aes(size = pct.exp.cat, fill = pct.exp.cat) )+
+      scale_fill_manual(values=  c("#01295f","#1c51be","#52b893","#f5d62e","#f86624","firebrick") ) +
+      scale_size_manual(values = seq(1,6,1))+
+      scale_y_discrete(position = "right")+
+      theme_classic()+
+      theme(axis.text = element_text(color = "black"),
+            axis.title = element_blank(),
+            axis.text.x = element_text(angle = 90, hjust =1,vjust =0.3), legend.position = "bottom",
+            axis.text.y = element_text(face = "italic")
+            )
+  )
+  dev.off()
+}
+```
+
+
+##Ext Fig 2B Fraction per specimen
+```{r}
+tmp1 = CD8[[]] %>% dplyr::select(Batch.scRNA,Identity.Subtype1)
+tmp1 = table(CD8$Identity.Subtype1, CD8$Batch.scRNA )
+tmp1 = apply(tmp1,1,function(x) x/colSums(tmp1)*100) %>% t() %>% as_tibble(rownames = "Cluster") %>% gather(key = "ID", value = "Pct", -Cluster)
+tmp1$Cluster =factor(tmp1$Cluster, levels = levels(CD8$Identity.Subtype1) )
+tmp1$Cancer = NA
+tmp1$Cancer[grep("BRCA",tmp1$ID)] = "BRCA"
+tmp1$Cancer[grep("CRC",tmp1$ID)] = "CRC"
+tmp1$Cancer[grep("OVCA",tmp1$ID)] = "OVCA"
+tmp1 = tmp1[grep("T_CD8",tmp1$Cluster),]
+
+tmp2 = table(CD8$Identity.Subtype1, CD8$Cancer)
+tmp2 = apply(tmp2,1,function(x) x/colSums(tmp2)*100) %>% t() %>% as_tibble(rownames = "Cluster") %>% gather(key = "Cancer", value = "Pct", -Cluster)
+tmp2$Cluster =factor(tmp2$Cluster, levels = levels(CD8$Identity.Subtype1) )
+tmp2 = tmp2[grep("T_CD8",tmp2$Cluster),]
+
+tmp2$ID = tmp2$Cancer
+tmp2$Cancer = "All"
+colnames(tmp2)
+tmp = rbind(tmp1,tmp2)
+for(i in 1){
+      PDF("Ext.Fig.2B_right.BOC.CD8.PCT.Identity.Subtype1", w=3.2,h=1.5,r=500)
+      print(
+            ggplot(tmp,aes(x = ID ,y = Pct,fill = Cluster )) +
+                  geom_bar(stat="identity")  +
+                  scale_fill_manual(values= BOCDF$cols$CD8.Subtype1 ) + 
+                  theme_classic()+ Dot_axis90B+
+                  facet_grid(.~ Cancer, scales = "free", space="free", switch = "y")+
+                  theme(plot.title = element_blank(),
+                        axis.title = element_blank(),
+                        axis.text.x = element_text(size =5, family = "Arial", color = "black",angle = 90, hjust =1, vjust =0.3),
+                        axis.text.y = element_text(size =5, family = "Arial", color = "black"),
+                        axis.line = element_line(colour = 'black', size = 0.25),
+                        axis.ticks = element_line(colour = 'black', size = 0.15),
+                        axis.ticks.length = unit(0.05,"cm"),
+                        strip.background = element_rect(fill = "white"),
+                        strip.text.x.top = element_text(size =5, family = "Arial",colour = "black"),
+                        legend.key.size = unit(0.1, 'in'),
+                        legend.title = element_text(size = 5),
+                        legend.text = element_text(size=4),
+                        legend.position = "right"
+                )
+      )
+      dev.off()
+}
+
+
+
+```
+
+
+##Ext Fig  2C&D
+```{r}
+DE2 <- readRDS("~/RStudioProject/scRNA/BOC.DE_Specimen.Celltype.230713.converted.rds")
+DE2 <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC.DE_Specimen.Celltype.230713.converted.rds")
+df = DE2$df
+selected.cluster = "T_CD8"
+for(i in c("ETC.Ref","ETC.Ref2","Ribosome") ){
+  selected.genes = unlist( GeneSet$DE[[i]] ) %>% unique()
+  df1 = filter(df, Genes %in% selected.genes )  %>% filter(Cluster %in% selected.cluster)
+  df1 = pCat(df1, "p_val_adj")
+  df1 = GeneGroup(df1, GeneSet$DE[[i]])
+  a = max(abs(df1$avg_log2FC))+0.2 
+  plot = ggplot(df1, aes(y = Dataset , x = Genes  ) ) + facet_grid(Cluster ~ Set, scales = "free", space="free", switch = "y") +
+    theme_classic() + 
+    geom_tile(color = "white",aes(fill =avg_log2FC)) +  
+    scale_fill_gradientn(values =  c(0, 0.45 , 0.5 ,  5.5 , 1 ) ,
+                          colours = Col.HiLow.9Shades,
+                          limits = c(-a,a))+
+    theme(plot.title = element_blank(),
+          axis.title = element_blank(),
+          axis.text.x = element_text(size =5, family = "Arial", color = "black", face = "italic",angle = 90, hjust =1, vjust =0.3),
+          axis.text.y = element_text(size =5, family = "Arial", color = "black"),
+          axis.line = element_line(colour = 'black', size = 0.25),
+          axis.ticks = element_line(colour = 'black', size = 0.15),
+          axis.ticks.length = unit(0.05,"cm"),
+          strip.background = element_rect(fill = "white",size = 0.25),
+          strip.placement = "outside",
+          #strip.text.y = element_text(size =5, family = "Arial",colour = "black"),
+          strip.text = element_text(size =5, family = "Arial",colour = "black",
+                                      margin = margin(t = 0.1, r = 0, b = 0.1, l = 0, unit = "cm") ),
+          legend.key.size = unit(0.1, 'in'),
+          legend.title = element_text(size = 5),
+          legend.text = element_text(size=4),
+          legend.position = "bottom"
+          )
+  PDF(paste0("Ext.Fig.2CD.BOC.CD8.DE.perSpec.Heatmap.Celltype.v2.",i), h = 2.2, w = c(1.5 + (length(unique(df1$Genes))*0.06) ))
+  print(plot)
+  dev.off()
+}
+
+```
+
+
+
+#Ext Figure 3 BOC CD4
+##Ext Fig 3A PTGER4 expression (EP4 Group)
+```{r}
+CD4 = subset(BOC, Identity.Celltype == "T_CD4")
+Idents(CD4) = CD4$PTGER4.Group.Celltype
+tmp2 = c("#400E32","#A61F69","#F2921D","#F2CD5C")
+for(i in 1){
+  PDF("Ext.Fig.3A.BOC.CD4.Vln.PTGER4.PTGER4Group.Celltype",w=2,h=5)
+  print(
+    VlnPlot(CD4, "PTGER4",cols = tmp2, pt.size = 0) + 
+      NoLegend() +
+      #ylab("Normalize expression") +
+      theme(axis.title = element_blank(),
+            axis.text.x = element_text(angle = 90,color="black",vjust=0.3),
+            plot.title = element_blank())
+  )
+  dev.off
+}
+```
+
+##Ext Fig 3B Heatmap
+```{r}
+DE2 <- readRDS("~/RStudioProject/scRNA/BOC.DE_Specimen.Celltype.230713.converted.rds")
+DE2 <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC.DE_Specimen.Celltype.230713.converted.rds")
+df = DE2$df
+
+selected.cluster = c("T_CD4")
+for(i in c("CD8.Overview2") ){
+  selected.genes = unlist( GeneSet$DE[[i]] ) %>% unique()
+  df1 = filter(df, Genes %in% selected.genes )  %>% filter(Cluster %in% selected.cluster)
+  df1 = pCat(df1,"p_val_adj")
+  df1 = GeneGroup(df1, GeneSet$DE[[i]] )
+  Fsize = 6
+  a = max(abs(df1$avg_log2FC))+0.2 
+  plot = ggplot(df1, aes(y = Dataset , x = Genes  ) ) + 
+    facet_grid(Cluster ~ Set, scales = "free", space="free", switch = "y") + 
+    theme_classic() + 
+    geom_tile(color = "white",aes(fill =avg_log2FC)) +  
+    scale_fill_gradientn(colours = Col.HiLow.7Shades,
+                         name = "Average log2 fold change\n(PTGER4hi/lo)",
+                         values =  c( 0,0.1,0.45,0.48,0.5,0.52,0.55,0.9,  1 ),   
+                         breaks = c(-1,-0.5,0,0.5,1),
+                         limits = c(-a,a) ) +
+    theme(plot.title = element_blank(),
+          axis.text.x = element_text(size =Fsize, family = "Arial", color = "black", face = "italic",angle = 90, hjust =1, vjust =0.3),
+          axis.text.y = element_text(size =Fsize, family = "Arial", color = "black"),
+          axis.line = element_line(colour = 'black', linewidth = 0.25),
+          axis.ticks = element_line(colour = 'black', linewidth = 0.15),
+          axis.ticks.length = unit(0.05,"cm"),
+          axis.title = element_blank(), 
+          strip.text.y = element_blank(),
+          strip.text.x.top = element_text(size =Fsize, family = "Arial",colour = "black",
+                                          margin = margin(t = 0.02, r = 0, b = 0.02, l = 0, unit = "cm") ),
+          strip.background = element_rect(fill = "white",linewidth = 0.35),
+          strip.background.y =  element_blank(),
+          strip.placement = "outside",
+          legend.key.size = unit(0.1, 'in'),
+                        legend.title = element_text(size = Fsize,family = "Arial", color = "black",angle=90),
+                        legend.text = element_text(size=Fsize-1,family = "Arial", color = "black"),
+          plot.margin = margin(t = 0, r = 0, b = 0, l = 0  ),
+          legend.position = "right"
+          )
+                
+  PDF(paste0("Ext.Fig.3B.BOC.CD4.DE.perSpec.Heatmap.Celltype.",i), h = 2.1, w = 5.6 )
+  print(plot)
+  dev.off()
+}
+
+```
+
+
+##Ext Fig 3C GSEA Running
+```{r}
+#DE = readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC.DE_Bulk.Celltype4.230713.Converted.rds")
+#DE = readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC.DE_Bulk.Celltype.230713.Converted.rds")
+DE <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC.DE_Bulk.Celltype.Converted.GSEA_nperm50K.2300901.rds")
+selected.pathway = c("HALLMARK_OXIDATIVE_PHOSPHORYLATION","HALLMARK_MYC_TARGETS_V1" )
+GSEA = DE$GSEA
+GSEA$T_CD4 %>% filter(pathway %in% selected.pathway)
+
+for(i in c("T_CD4")){
+  tmp1 = DE[[i]][["High-Low"]] %>% as_tibble(rownames = "Genes" ) %>% dplyr::select(Genes, avg_log2FC) %>% arrange(avg_log2FC)
+  tmp2 = GSEA[[i]] %>% as.data.frame()
+  rownames(tmp2) = tmp2$pathway
+  ranks = deframe(tmp1)
+  for(p in selected.pathway){
+    tmp3 = paste0("NES = ",tmp2[p,"NES"],"\n p-value = ", tmp2[p,"pval"],"\n adjusted p-value = ", tmp2[p,"padj"])
+    PDF(paste0("Ext.Fig.3C.BOC.Bulk.Celltype.GSEAPlot.",i,".",p),w=4,h=2.5)
+    print(plotEnrichment(fgsea_sets[[p]], ranks,gseaParam = 1,ticksSize = 0.3  ) + ggtitle(paste0(i," | ", p),tmp3)  )
+    dev.off()
+    tmp = plotEnrichment(fgsea_sets[[p]], ranks,gseaParam = 1,ticksSize = 0.3  ) + 
+      theme_classic() + 
+      theme(title = element_text(size=5), axis.title = element_blank(),axis.text = element_text(color = "black"))
+    tmp$layers[[1]]$aes_params$colour = "#252D6B"
+    a = tmp$layers[[3]]$data
+    tmp$layers[[6]]$mapping$y = as.numeric(a-0.1)
+    tmp$layers[[6]]$mapping$yend= as.numeric(a-0.2)
+    tmp$layers[[6]]$aes_params$size=0.3
+    tmp$layers[[6]]$aes_params$colour = "#41487E"
+    tmp$layers[[5]] = geom_line(color ="#252D6B",size=1)
+    tmp$layers[[2]]$aes_params$colour = "black"
+    tmp$layers[[3]]$aes_params$colour = "black"
+    PDF(paste0("Ext.Fig.3C.BOC.Bulk.Celltype.GSEAPlot.",i,".",p,".UL"),w=3,h=1.3)
+    print(tmp )
+    dev.off()
+  }
+}
+
+```
+
+##Ext Fig3D Heatmap Full ETC RP
+```{r}
+DE2 <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC.DE_Specimen.Celltype.230713.converted.rds")
+df = DE2$df
+
+selected.cluster = c("T_CD4")
+Excluded.genes = c("RPL3L","RPS4Y1")
+for(i in c("ETC.Ribosome") ){
+  selected.genes = unlist( GeneSet$DE[[i]] ) %>% unique() %>% setdiff(Excluded.genes)
+  df1 = filter(df, Genes %in% selected.genes )  %>% filter(Cluster %in% selected.cluster)
+  df1 = GeneGroup(df1, GeneSet$DE[[i]])
+  Fsize = 5
+  a = max(abs(df1$avg_log2FC))+0.2 
+  plot = ggplot(df1, aes(y = Dataset , x = Genes  ) ) + 
+    facet_grid(Cluster ~ Set, scales = "free", space="free", switch = "y") + 
+    theme_classic() + 
+    geom_tile(color = "white",aes(fill =avg_log2FC)) +  
+    scale_fill_gradientn(colours = Col.HiLow.7Shades,
+                         name = "Average log2 fold change\n(PTGER4hi/lo)",
+                         values =  c( 0,0.1,0.45,0.48,0.5,0.52,0.55,0.9,  1 ),   
+                         breaks = c(-1,-0.5,0,0.5,1),
+                         limits = c(-a,a) ) +
+    theme(plot.title = element_blank(),
+          axis.text.x = element_text(size =Fsize, family = "Arial", color = "black", face = "italic",angle = 90, hjust =1, vjust =0.3),
+          axis.text.y = element_text(size =Fsize, family = "Arial", color = "black"),
+          axis.line = element_line(colour = 'black', linewidth = 0.25),
+          axis.ticks = element_line(colour = 'black', linewidth = 0.15),
+          axis.ticks.length = unit(0.05,"cm"),
+          axis.title = element_blank(), 
+          strip.text.y = element_blank(),
+          strip.text.x.top = element_text(size =Fsize, family = "Arial",colour = "black",
+                                          margin = margin(t = 0.02, r = 0, b = 0.02, l = 0, unit = "cm") ),
+          strip.background = element_rect(fill = "white",linewidth = 0.35),
+          strip.background.y =  element_blank(),
+          strip.placement = "outside",
+          legend.key.size = unit(0.1, 'in'),
+                        legend.title = element_text(size = Fsize,family = "Arial", color = "black",angle=90),
+                        legend.text = element_text(size=Fsize-1,family = "Arial", color = "black"),
+          plot.margin = margin(t = 0, r = 0, b = 0, l = 0  ),
+          legend.position = "right"
+          )
+                
+  PDF(paste0("Ext.Fig.3D.BOC.CD4.DE.perSpec.Heatmap.Celltype.",i), h = 1.5, w = 13 )
+  print(plot)
+  dev.off()
+}
+```
+
+
+
+
+#Ext Figure 4 BOC TIM
+##Ext Fig 4A1 FP (COX1/2)
+```{r}
+BOC = readRDS("BOC.PTGER4Group.230713.rds")
+Idents(BOC) = BOC$Identity.Celltype2
+TIM = subset(BOC, idents = c("TAN-PMN","TIM","TIM_Dividing"))
+BOC = 0
+TIM = Clustering1(TIM, spread = 1, dist = 1)
+
+for(i in c("PTGS1","PTGS2")  ){
+  PDF(paste0("Ext.Fig.4A1.BOC.TIM.FP.",i),h=1.6,w=1.6)
+  print(
+    FeaturePlot(TIM, i,pt.size = 0.01, cols = col_orange3) +
+      theme(plot.title = element_blank(),
+            axis.text = element_text(size =5, family = "Arial", color = "black"),
+            axis.title = element_text(size = 5, family = "Arial", color = "black"),
+            axis.line = element_line(colour = 'black', size = 0.25),
+            axis.ticks = element_line(colour = 'black', size = 0.15),
+            axis.ticks.length = unit(0.05,"cm")  ,
+            plot.margin = margin(t = 0,  # Top margin
+                             r = 0,  # Right margin
+                             b = 0,  # Bottom margin
+                             l = 0) ) +NoLegend()
+        )
+  dev.off()
+}
+
+for(i in c("PTGS2")  ){
+  PDF(paste0("Ext.Fig.4A1.BOC.TIM.FP.L.",i),h=2,w=2)
+  print(
+    FeaturePlot(TIM, i,pt.size = 0.01, cols = col_orange3) +
+      theme(plot.title = element_blank(),
+            axis.title = element_text(size =15))
+        )
+  dev.off()
+}
+
+
+```
+
+##Ext Fig 4A2 Vln (COX1/2)
+```{r}
+tmp1 = FetchData(TIM, vars = c("Identity.Subtype1",c("PTGS1","PTGS2"))) %>% as_tibble() %>% gather(key="Genes", value = "Exp", -Identity.Subtype1)
+tmp1$Genes = factor(tmp1$Genes, levels = c("PTGS1","PTGS2") )
+for(i in 1){
+  PDF(paste0("Ext.Fig.3A2.BOC.TIM.PGE2.Vln."),w = 2.5,h=4.5 )
+  print(
+    ggplot(tmp1,aes(x = Identity.Subtype1, y = Exp, fill = Identity.Subtype1)) + 
+      geom_violin(scale = "width") +
+      scale_fill_manual( values = BOCDF$cols$TIM.Subtype1) + 
+      facet_grid(Genes~. , switch = "y" , scales =  "free") +
+      theme_classic()+
+      theme(axis.text = element_text(color = "black"),
+            axis.text.x = element_text(angle=90, hjust = 1, vjust = 0.3,size = 14),
+            axis.title = element_blank(),
+            strip.text.y.left = element_text(face="bold", size =13,color = "white"),
+            strip.background = element_rect(fill = "black"),
+            strip.placement = "outside") + 
+      NoLegend()
+  )
+  dev.off()
+}
+```
+
+##Ext Fig 4B&C
+```{r}
+DE2 <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC.DE_Specimen.Celltype.230713.converted.rds")
+df = DE2$df
+selected.cluster = c("TIM")
+
+for(i in c("ETC.Ref","ETC.Ref2","Ribosome") ){
+  selected.genes = unlist( GeneSet$DE[[i]] ) %>% unique()
+  df1 = filter(df, Genes %in% selected.genes )  %>% filter(Cluster %in% selected.cluster)
+  df1 = pCat(df1, "p_val_adj")
+  df1 = GeneGroup(df1, GeneSet$DE[[i]])
+  a = max(abs(df1$avg_log2FC))+0.2 
+  plot = ggplot(df1, aes(y = Dataset , x = Genes  ) ) + facet_grid(Cluster ~ Set, scales = "free", space="free", switch = "y") +
+    theme_classic() + 
+    geom_tile(color = "white",aes(fill =avg_log2FC)) +  
+    scale_fill_gradientn(values =  c(0, 0.45 , 0.5 ,  5.5 , 1 ) ,
+                          colours = Col.HiLow.9Shades,
+                          limits = c(-a,a))+
+    theme(plot.title = element_blank(),
+          axis.title = element_blank(),
+          axis.text.x = element_text(size =5, family = "Arial", color = "black", face = "italic",angle = 90, hjust =1, vjust =0.3),
+          axis.text.y = element_text(size =5, family = "Arial", color = "black"),
+          axis.line = element_line(colour = 'black', size = 0.25),
+          axis.ticks = element_line(colour = 'black', size = 0.15),
+          axis.ticks.length = unit(0.05,"cm"),
+          strip.background = element_rect(fill = "white",size = 0.25),
+          strip.placement = "outside",
+          #strip.text.y = element_text(size =5, family = "Arial",colour = "black"),
+          strip.text = element_text(size =5, family = "Arial",colour = "black",
+                                      margin = margin(t = 0.1, r = 0, b = 0.1, l = 0, unit = "cm") ),
+          legend.key.size = unit(0.1, 'in'),
+          legend.title = element_text(size = 5),
+          legend.text = element_text(size=4),
+          legend.position = "bottom"
+          )
+  PDF(paste0("Ext.Fig.2BC.BOC.TIM.DE.perSpec.Heatmap.Celltype.",i), h = 2.2, w = c(1.5 + (length(unique(df1$Genes))*0.06) ))
+  print(plot)
+  dev.off()
+}
+
+```
+
+#Ext Figure 5 LLC1
+##Ext Fig 5A LLC: UMAP TNK
+```{r}
+LLC <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/LLC.ReShape.230730.rds")
+Idents(LLC) = LLC$Identity.Celltype2
+DimPlot(LLC)
+TNK = subset(LLC, idents = c("NK", "Tcell"))
+TNK = Clustering1(TNK,dist = 2,spread=1)
+Idents(TNK) = TNK$Identity.Celltype3
+for(i in 1){
+  PDF("Ext.Fig.5A.LLC.TNK.DM", w=1.6,h=1.6)
+  print(
+    DimPlot(TNK,label = F,pt.size = 0.1,cols = c("#f57f26", "#d51f24","#252d6b","#fcb900","#1e8b40")) + 
+      theme(plot.title = element_blank(),
+            axis.text = element_text(size =5, family = "Arial", color = "black"),
+            axis.title = element_text(size = 5, family = "Arial", color = "black"),
+            axis.line = element_line(colour = 'black', size = 0.25),
+            axis.ticks = element_line(colour = 'black', size = 0.15),
+            axis.ticks.length = unit(0.05,"cm")  ,
+            plot.margin = margin(t = 0,  # Top margin
+                             r = 0,  # Right margin
+                             b = 0,  # Bottom margin
+                             l = 0) ) +NoLegend()
+          )
+  dev.off()
+  PDF("Ext.Fig.5A.LLC.TNK.DM.L", w=2, h=2)
+  print(DimPlot(TNK,label = T,pt.size = 1.2, cols = c("#f57f26", "#d51f24","#252d6b","#fcb900","#1e8b40")) )
+  dev.off()
+}
+
+for(i in c("Cd3d","Cd4","Cd8a","Foxp3","Nkg7","Trdc")){
+  PDF(paste0("Ext.Fig.5A.LLC.TNK.FP.",i), w=1.6,h=1.6)
+  print(
+    FeaturePlot(TNK,i,pt.size =0.1) + 
+      scale_orange + 
+      theme(plot.title = element_blank(),
+            axis.text = element_text(size =5, family = "Arial", color = "black"),
+            axis.title = element_text(size = 5, family = "Arial", color = "black"),
+            axis.line = element_line(colour = 'black', size = 0.25),
+            axis.ticks = element_line(colour = 'black', size = 0.15),
+            axis.ticks.length = unit(0.05,"cm")  ,
+            plot.margin = margin(t = 0,  # Top margin
+                             r = 0,  # Right margin
+                             b = 0,  # Bottom margin
+                             l = 0) ) +NoLegend()
+          )
+  dev.off()
+}
+
+```
+
+
+##Ext Fig 5B LLC: Heatmap (Day6/OXPHOS)
+```{r}
+df = LLCDF$df.DE.Celltype3
+for(t in  c("Day1.5","Day6")){
+for(i in c("ETC.Ref2","Ribosome") ){
+  selected.genes = unlist( geneSet[[i]] ) %>% unique()
+  df1 = filter(df, Genes %in% selected.genes ) 
+  df1 = GeneGroup(df1,geneSet[[i]])
+  df1 = pCat(df1 , "p_val_adj" )
+  df1 = filter(df1, Dataset == t)
+  a = max(abs(df1$avg_log2FC))+0.2 
+  plot = ggplot(df1, aes(y = fct_rev(Cluster), x = Genes  ) ) + 
+    geom_point(aes(color = avg_log2FC, size = pval_cat))+
+    facet_grid(Dataset ~ Set, scales = "free", space="free", switch = "y") + 
+    theme_classic() + 
+    scale_size_manual(values = c(0.8,1.2,1.6,2)) + 
+    scale_color_gradientn(values = rescale(   c( -a,-0.1,0,0.1,  a ) ) ,
+                         colours = Col.HiLow.9Shades,
+                         limits = c(-a,a) ) +
+    theme(plot.title = element_blank(),
+          axis.title = element_blank(),
+          axis.text.x = element_text(size =5, family = "Arial", color = "black", face = "italic",angle = 90, hjust =1, vjust =0.3),
+          axis.text.y = element_text(size =5, family = "Arial", color = "black"),
+          axis.line = element_line(colour = 'black', size = 0.25),
+          axis.ticks = element_line(colour = 'black', size = 0.15),
+          axis.ticks.length = unit(0.05,"cm"),
+          strip.background = element_rect(fill = "white"),
+          strip.placement = "outside",
+          strip.text.x.top = element_text(size =5, family = "Arial",colour = "black"),
+          strip.text = element_text(size =5, family = "Arial",colour = "black",
+                                    margin = margin(t = 0.1, r = 0, b = 0.1, l = 0, unit = "cm") ),
+          legend.key.size = unit(0.1, 'in'),
+          legend.title = element_text(size = 5),
+          legend.text = element_text(size=4),
+          legend.position = "bottom" )
+                
+  PDF(paste0("Ext.Fig.5C.LLC.Heatmap.Celltype3.padj.",t,".",i), h = 2, w = c(1 + (length(unique(df1$Genes))*0.07) ))
+  print(plot)
+  dev.off()
+}
+}
+geneSet$ETC.Ribosome2
+
+geneSet$ETC.Ribosome
+for(t in  c("Day1.5","Day6")){
+for(i in c("ETC.Ribosome","ETC.Ref2","Ribosome") ){
+  df1 = filter(df, Dataset == t)
+  df1 = GeneGroup(df1, geneSet[[i]] )
+  df1 = pCat(df1, "p_val_adj" )
+  a = max(abs(df1$avg_log2FC))+0.2 
+  Fsize = 5
+  plot = ggplot(df1, aes(y = fct_rev(Cluster), x = Genes  ) ) + 
+            facet_grid(Dataset ~ Set, scales = "free", space="free", switch = "y") +
+            theme_classic() + 
+            geom_point(aes(color = avg_log2FC, size = pval_cat))+scale_size_manual(values = c(0.7,1,1.4,1.8) ) + 
+            scale_color_gradientn(colours = Col.HiLow.9Shades, 
+                                  values = c(0,0.2,0.45,0.5,0.55,0.8,1 ),
+                                  limits = c(-a ,a ))+ 
+            theme(plot.title = element_blank(),
+                  axis.text.x = element_text(size =Fsize, family = "Arial", color = "black", face = "italic",angle = 90, hjust =1, vjust =0.3),
+                  axis.text.y = element_text(size =Fsize, family = "Arial", color = "black"),
+                  axis.line = element_line(colour = 'black', size = 0.25),
+                  axis.ticks = element_line(colour = 'black', size = 0.15),
+                  axis.ticks.length = unit(0.05,"cm"),
+                  axis.title = element_blank(), 
+                  strip.text.y = element_blank(),
+                  strip.text.x.top = element_text(size =Fsize, family = "Arial",colour = "black",
+                                                  margin = margin(t = 0.1, r = 0, b = 0.1, l = 0, unit = "cm") ),
+                  strip.background = element_rect(fill = "white",linewidth = 0.35),
+                  strip.background.y =  element_blank(),
+                  strip.placement = "outside",
+                  legend.key.size = unit(0.1, 'in'),
+                  legend.title = element_text(size = Fsize),
+                  legend.text = element_text(size=Fsize-1),
+                  plot.margin = margin(t = 0, r = 0, b = 0, l = 0  ),
+                  legend.position = "bottom"
+          )
+                
+  PDF(paste0("Ext.Fig.5C.LLC.Heatmap.Celltype3.padj.V2.",t,".",i), h = 1.8, w = (0.35+ (length(unique(df1$Genes))*0.07) ) )
+  print(plot)
+  dev.off()
+}
+}
+
+
+```
+
+
+#Ext Figure 6 IFNG response
+##Ext Fig 6A GSEA (NES = position, pvalue = size/color)
+```{r}
+#GSEA = readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/GSEA.LLC.Celltype3.nperm50k.230823.rds")
+GSEA <- readRDS( "~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/GSEA.LLC.Celltype3.Multilevel.230903.rds")
+GSEA = GSEA$H
+GSEA$Day1.5$T_CD8
+selected.pathway = c("HALLMARK_INTERFERON_GAMMA_RESPONSE")
+selected.cluster = names(GSEA$Day6) %>% setdiff("Doublet")
+
+df = data.frame()
+for(t in c("Day1.5")){
+  for(c in selected.cluster ){
+  #for(c in c("T_CD8","Mono","TAM")){
+    tmp1 = GSEA[[t]][[c]] %>% as.data.frame() %>% filter(pathway %in% selected.pathway)
+    tmp1$Cluster = c
+    tmp1$Time = t
+    df = rbind(df,tmp1)
+  }
+}
+df$pathway = factor(df$pathway, levels = selected.pathway)
+df$Cluster = factor(df$Cluster, levels = selected.cluster )
+df1$pval_cat %>% summary()
+df1$NES %>% range()
+
+for(p in selected.pathway){
+  df1 = filter(df, pathway == p)
+  df1 = pCat(df1,"padj")
+  a = max(abs(df1$NES))+0.2 
+  Fsize = 6
+  PDF(paste0("Ext.Fig.6A.LLC1.NES.Summary.V2.",p),w=2.2,h=1.3)
+  print(
+    ggplot(df1,aes(x = NES, y = fct_rev(Cluster) ) )+
+      geom_point(aes(size = pval_cat, fill = NES),shape = 21)+
+      geom_vline(xintercept = 0, linetype = "dashed" )+
+      scale_fill_gradientn(colours = Col.HiLow.7Shades,
+                           name = "NES",
+                            values =  c( 0,0.1,0.4,0.5,0.56,0.9,  1 ),   
+                            limits = c(-a,a) ) +
+      scale_size_manual(values = c(1,2,3)  )+
+      theme_classic()+
+      xlim(-1,a)+
+      theme(plot.title = element_blank(),
+          axis.text.x = element_text(size =Fsize, family = "Arial", color = "black", hjust =1, vjust =0.3),
+          axis.text.y = element_text(size =Fsize, family = "Arial", color = "black"),
+          axis.line = element_line(colour = 'black', linewidth = 0.25),
+          axis.ticks = element_line(colour = 'black', linewidth = 0.15),
+          axis.ticks.length = unit(0.05,"cm"),
+          axis.title = element_blank(), 
+          legend.key.size = unit(0.1, 'in'),
+                        legend.title = element_text(size = Fsize,family = "Arial", color = "black"),
+                        legend.text = element_text(size=Fsize-1,family = "Arial", color = "black"),
+          plot.margin = margin(t = 0, r = 0, b = 0, l = 0  ),
+          legend.position = "right"
+          )
+  )
+  dev.off()
+}
+
+GSEA$Day6$Mono
+```
+
+##Ext Fig 6B LLC1 Mono GSEA Running
+```{r}
+DE <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/DE.LLC.Celltype3.pval.nperm50k.230903.rds")
+GSEA <- readRDS( "~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/GSEA.LLC.Celltype3.Multilevel.230903.rds")
+GSEA = GSEA$H
+selected.pathway = c("HALLMARK_INTERFERON_GAMMA_RESPONSE")
+selected.cluster = c("Mono")
+
+for(t in c("Day1.5","Day6")){
+  for(c in selected.cluster ){
+    print(c)
+    tmp1 = DE[[t]][[c]] %>% as_tibble(rownames = "Genes" ) %>% dplyr::select(Genes, avg_log2FC) %>% arrange(avg_log2FC)
+    ranks = deframe(tmp1)
+    tmp2 = GSEA[[t]][[c]] %>% as.data.frame()
+    rownames(tmp2) = tmp2$pathway
+    for(p in selected.pathway){
+      tmp3 = paste0("NES = ",tmp2[p,"NES"],"\n p-value = ", tmp2[p,"pval"],"\n adjusted p-value = ", tmp2[p,"padj"])
+      PDF(paste0("Ext.Fig.6B.LLC1.Celltype3.GSEA.plot.",c,".",t,".",p,".L") ,  w=4,h=3)
+      print(plotEnrichment(mfgsea_sets[[p]], ranks,gseaParam = 1,ticksSize = 0.3  ) + ggtitle(paste0(c," | ", p),tmp3)  )
+      dev.off()
+      tmp = plotEnrichment(mfgsea_sets[[p]], ranks,1,0.3  ) + theme_classic() + 
+              theme(title = element_text(size=5), axis.title = element_blank(),axis.text = element_text(color = "black"))
+      tmp$layers[[1]]$aes_params$colour = "#FCB900"
+      a = tmp$layers[[3]]$data
+      tmp$layers[[6]]$mapping$y = as.numeric(a-0.1)
+      tmp$layers[[6]]$mapping$yend= as.numeric(a-0.2)
+      tmp$layers[[6]]$aes_params$size=0.3
+      tmp$layers[[6]]$aes_params$colour = "#FFC933"
+      tmp$layers[[5]] = geom_line(color ="#FCB900",size=1)
+      tmp$layers[[2]]$aes_params$colour = "black"
+      tmp$layers[[3]]$aes_params$colour = "black"
+      PDF(paste0("Ext.Fig.6B.LLC1.Celltype3.GSEA.plot.",c,".",t,".",p,".UL"),w=4,h=1.8)
+      print(tmp )
+      dev.off()
+    }
+  }
+}
+
+```
+
+##Ext Fig 6C LLC1 TNK heatmap IFNG 
+```{r}
+df = LLCDF$df.DE.Celltype3
+selected.cluster = c("NK","T_CD8","T_CD4","T_GammaDelta","Treg")
+for(i in c("IFNG") ){
+  selected.genes = unlist( geneSet[[i]] ) %>% unique()
+  df1 = filter(df, Genes %in% selected.genes ) %>% filter(Cluster %in% selected.cluster)
+  df1$Genes = factor(df1$Genes, levels = selected.genes  ) 
+  Fsize = 6
+  a = max(abs(df1$avg_log2FC))+0.2 
+  plot = ggplot(df1, aes(y = fct_rev(Cluster), x = Genes  ) ) + 
+    facet_grid( ~ Dataset , scales = "free", space="free", switch = "y") +
+    theme_classic() + 
+    geom_tile(color = "white", aes(fill =avg_log2FC)) +  
+    scale_fill_gradientn(colours = Col.HiLow.7Shades,
+                         name = "Average log2 fold change\n(EP2iEP4i/vehicle)",
+                         values =  c( 0,0.2,0.4,0.5,0.6,0.8,  1 ), 
+                         limits = c(-a,a) ) +
+    theme(plot.title = element_blank(),
+          axis.text.x = element_text(size =Fsize, family = "Arial", color = "black", face = "italic",angle = 90, hjust =1, vjust =0.3),
+          axis.text.y = element_text(size =Fsize, family = "Arial", color = "black"),
+          axis.line = element_line(colour = 'black', linewidth = 0.25),
+          axis.ticks = element_line(colour = 'black', linewidth = 0.15),
+          axis.ticks.length = unit(0.05,"cm"),
+          axis.title = element_blank(), 
+          strip.text.y = element_blank(),
+          strip.text.x.top = element_text(size =Fsize, family = "Arial",colour = "black",
+                                          margin = margin(t = 0.02, r = 0, b = 0.02, l = 0, unit = "cm") ),
+          strip.background = element_rect(fill = "white",linewidth = 0.35),
+          strip.background.y =  element_blank(),
+          strip.placement = "outside",
+          legend.key.size = unit(0.1, 'in'),
+                        legend.title = element_text(size = Fsize,family = "Arial", color = "black",angle=90),
+                        legend.text = element_text(size=Fsize-1,family = "Arial", color = "black"),
+          plot.margin = margin(t = 0, r = 0, b = 0, l = 0  ),
+          legend.position = "right"
+          )
+  PDF(paste0("Ext.Fig.6C.LLC1.Celltype3.Heatmap.Celltype3.L.",i), h = 0.8, w =  1.8 )
+  print(plot)
+  dev.off()
+}
+```
+
+
+##Ext Fig 6D Bona: Heatmap OXPHOS
+```{r}
+Bona <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA.Public/Bonavita/Bonavita.QC.230714.rds")
+Idents(Bona) = Bona$Identity.Celltype3
+
+df = data.frame()
+selected.genes = sort(unique(unlist(geneSet) )) %>% intersect(rownames(Bona))
+selected.cluster = setdiff(levels(Idents(Bona)), "NK")
+
+for(i in  selected.cluster ){
+  print(i)
+  tmp = subset(Bona, idents=i)
+  Idents(tmp) = tmp$orig.ident
+  df1 = FindMarkers(tmp, ident.1 = "KOaNK", ident.2 = "KO", features = selected.genes,  logfc.threshold = 0.01, min.pct = 0.01) %>% as_tibble(rownames = "Genes")
+  df1$Cluster = i
+  df = rbind(df,df1)
+  }
+df$Cluster = factor(df$Cluster,levels =  selected.cluster )
+BonaDF[["DE.selected.perCluster.Celltype3"]]=df
+
+
+df = BonaDF[["DE.selected.perCluster.Celltype3"]]
+
+tmp1 = df %>% filter( (Cluster  == "Mono-TAM") & (p_val >0 ) )  %>% filter(Genes %in% geneSet$Ribosome[["Large subunit"]]) %>% arrange(p_val)
+tmp1 = tmp1$Genes[1:22]
+tmp2 = df %>% filter( (Cluster  == "Mono-TAM") & (p_val >0 ) )  %>% filter(Genes %in% geneSet$Ribosome[["Small subunit"]]) %>% arrange(p_val)
+tmp2 = tmp2$Genes[1:22]
+geneSet$Ribosome.selected2 = list("Large subunit" = tmp1, "Small subunit" = tmp2)
+geneSet$ETC.Ribosome2= c(geneSet$ETC.Ref2,geneSet$Ribosome.selected2)
+
+selected.cluster = setdiff(unique(df$Cluster), "NK")
+
+#for(i in c("ETC.Ref2","Ribosome.selected")){
+for(i in c("ETC.Ribosome2")){
+  df1 = GeneGroup(df, geneSet[[i]] ) 
+  df1 = df1 %>% filter(Cluster %in% selected.cluster)
+  Fsize = 5
+  a = max(abs(df1$avg_log2FC))+0.2 
+  PDF(paste0("Ext.Fig.6D.Bona.Heatmap.",i), h = 1, w = (0.6+ (length(unique(df1$Genes))*0.075) ) )
+  print(
+    ggplot(df1, aes(y = fct_rev(Cluster), x = Genes  ) ) + 
+                  theme_classic() + 
+                  Dot_axis90A + 
+                    ggtitle(i)+
+                  geom_tile(color = "white",aes(fill =avg_log2FC)) +  
+                  scale_fill_gradientn(colours = Col.HiLow.7Shades,
+                         values =  c( 0,0.45,0.5,0.55,  1 ),   
+                         breaks = c(-1.5,-0.75,0,0.75,1.5),
+                         limits = c(-1.5,1.5) ) +
+                  facet_grid(.~Set, scale = "free", space = "free", switch = "y")+
+                     theme(plot.title = element_blank(),
+          axis.text.x = element_text(size =Fsize, family = "Arial", color = "black", face = "italic",angle = 90, hjust =1, vjust =0.3),
+          axis.text.y = element_text(size =Fsize, family = "Arial", color = "black"),
+          axis.line = element_line(colour = 'black', linewidth = 0.25),
+          axis.ticks = element_line(colour = 'black', linewidth = 0.15),
+          axis.ticks.length = unit(0.05,"cm"),
+          axis.title = element_blank(), 
+          strip.text.y = element_blank(),
+          strip.text.x.top = element_text(size =Fsize, family = "Arial",colour = "black",
+                                          margin = margin(t = 0.02, r = 0, b = 0.02, l = 0, unit = "cm") ),
+          strip.background = element_rect(fill = "white",linewidth = 0.35),
+          strip.background.y =  element_blank(),
+          strip.placement = "outside",
+          legend.key.size = unit(0.1, 'in'),
+                        legend.title = element_text(size = Fsize,family = "Arial", color = "black"),
+                        legend.text = element_text(size=Fsize-1,family = "Arial", color = "black"),
+          plot.margin = margin(t = 0, r = 0, b = 0, l = 0  ),
+          legend.position = "right"
+          )
+  )
+  
+  dev.off()
+}
+```
+
+
+##Ext Fig 6D BOC NK CD8 Heatmap IFNG
+```{r}
+DE2 <- readRDS("~/RStudioProject/scRNA/BOC.DE_Specimen.Celltype.230713.converted.rds")
+DE2 <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC.DE_Specimen.Celltype.230713.converted.rds")
+df = DE2$df
+
+selected.cluster = c("T_CD8","NK")
+for(i in c("IFNG") ){
+  selected.genes = unlist( GeneSet$DE[[i]] ) %>% unique()
+  df1 = filter(df, Genes %in% selected.genes )  %>% filter(Cluster %in% selected.cluster)
+  df1$Genes = factor(df1$Genes, levels = selected.genes  )
+  Fsize = 6
+  a = max(abs(df1$avg_log2FC))+0.2 
+  plot = ggplot(df1, aes(x = Dataset , y = Genes  ) ) + 
+    facet_grid(. ~ Cluster , scales = "free", space="free", switch = "y") +
+    theme_classic() +        
+    geom_tile(color = "white",aes(fill =avg_log2FC)) +  
+    scale_fill_gradientn(colours = Col.HiLow.9Shades, 
+                         values = c(0,0.45,0.5,0.55,1),
+                         name = "Average log2 fold change",
+                         breaks = c(-1.5,-0.75,0,0.75,1.5),
+                         limits = c(-1.5,1.5) )+
+    theme(plot.title = element_blank(),
+          axis.text.x = element_text(size =Fsize, family = "Arial", color = "black",angle = 90, hjust =1, vjust =0.3),
+          axis.text.y = element_text(size =Fsize, family = "Arial", color = "black", face = "italic"),
+          axis.line = element_line(colour = 'black', linewidth = 0.25),
+          axis.ticks = element_line(colour = 'black', linewidth = 0.15),
+          axis.ticks.length = unit(0.05,"cm"),
+          axis.title = element_blank(), 
+          strip.text.y = element_blank(),
+          strip.text.x.top = element_text(size =Fsize, family = "Arial",colour = "black",
+                                          margin = margin(t = 0.02, r = 0, b = 0.02, l = 0, unit = "cm") ),
+          strip.background = element_rect(fill = "white",linewidth = 0.35),
+          strip.background.y =  element_blank(),
+          strip.placement = "outside",
+          legend.key.size = unit(0.1, 'in'),
+                        legend.title = element_text(size = Fsize,family = "Arial", color = "black"),
+                        legend.text = element_text(size=Fsize-1,family = "Arial", color = "black"),
+          plot.margin = margin(t = 0, r = 0, b = 0, l = 0  ),
+          legend.position = "bottom"
+          )
+                        
+  PDF(paste0("Ext.Fig.6E.BOC.Celltype.",i), h =1.35, w = 3.6)
+  print(plot)
+  dev.off()
+}
+```
+
+
+
+#Ext Figure 7 [Sanin, GSE119509]
+###Ext Fig 7A GSEA [NES]
+```{r}
+#Sanin <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/PublicBulkRNA/GSE119509.Sanin/Sanin.230828.rds")
+Sanin = readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/PublicBulkRNA/GSE119509.Sanin/Sanin.230908.rds" )
+
+df = Sanin$GSEA2 %>% filter(pathway %in% names(fgsea_sets_H) )
+df = df[c(1:8,43:50),]
+df$pathway = factor(df$pathway, levels = df$pathway)
+df$Change = "Down"
+df$Change[c(df$NES>0)] = "Up"
+df$Change = factor(df$Change,levels = c("Up","Down"))
+df$p_val_cat = df$padj
+df$p_val_cat[df$padj> 0.05 ] = ">0.05"
+df$p_val_cat[df$padj < 0.05 ] = "<0.05"
+df$p_val_cat[df$padj < 0.01 ] = "<0.01"
+df$p_val_cat[df$padj < 0.001 ] = "<0.001"
+df$p_val_cat = factor(df$p_val_cat, levels = c(">0.05","<0.05","<0.01","<0.001"))
+for(i in 1){
+  PDF("Ext.Fig.6A.Sanin.GSEA.NES.N10",w=4,h=2)
+  Fsize = 6
+  a = max(abs(df$NES))+0.2 
+  print(
+    ggplot(df, aes(y = fct_rev(pathway), x= NES))+
+      geom_bar(stat = "identity", aes(fill = p_val_cat)) + 
+      scale_fill_manual(values = c("#CAD2C5","#84A98C","#52796F","#354F52","#2F3E46"))+
+      theme_classic() +
+      theme(axis.text.x = element_text(size =Fsize, family = "Arial", color = "black"),
+            axis.text.y = element_text(size =Fsize, family = "Arial", color = "black"),
+            axis.title.x = element_text(size =Fsize+1, family = "Arial", color = "black"),
+            axis.title.y = element_blank(),
+            axis.line = element_line(colour = 'black', linewidth = 0.25),
+            axis.ticks = element_line(colour = 'black', linewidth = 0.15),
+            legend.key.size = unit(0.1, 'in'),
+            legend.title = element_text(size = Fsize,family = "Arial", color = "black"),
+            legend.text = element_text(size=Fsize-1,family = "Arial", color = "black"),
+            plot.margin = margin(t = 0, r = 0, b = 0, l = 0  ),
+            legend.position = "right"
+            ) +
+      xlim(-a,a)
+  )
+  dev.off()
+}
+```
+
+
+
+###Ext Fig 7B Volcano
+```{r}
+Sanin <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/PublicBulkRNA/GSE119509.Sanin/Sanin.230828.rds")
+df = Sanin$DE 
+df$Genes = df$mgi_symbol
+BOCDF[["Sanin_M2PGE2-M2"]] = df
+
+for(q in c("ETC","Ribosome","ETC.selected3")){
+  tmp = df 
+  tmp$logP = (-1)*(log10(tmp$pvalue))
+  tmp1 = tmp %>% filter(Genes %in% unlist(geneSet[[q]] ) )
+  tmp1$Group = q
+  tmp2 = tmp %>% filter(!Genes %in% unlist(geneSet[[q]] ) )
+  tmp2$Group = "other"
+  tmp = rbind(tmp1,tmp2)
+  tmp$logP %>% range()
+  tmp = tmp[!is.na(tmp$logP),]
+  for(i in 1){  
+    PDF(paste0("Ext.Fig.6B.Sanin.",q),w=5,h=5.3)
+    print(
+      ggplot(tmp, aes(x = log2FoldChange, y = logP)) + 
+      geom_point(size = 0.4,color ="grey")+
+      geom_point(size = 1, color = "#354f52",  data = subset(tmp, Group %in% q  ) )+
+      geom_text_repel(aes(label = Genes),color ="black",size =3.5,
+                      fontface ="italic", 
+                      data = subset(tmp, Group == q) , 
+                      #max.overlaps = Inf,box.padding = 1,
+                      #max.overlaps = 50,box.padding = 0.4,
+                      max.overlaps = 30,box.padding = 0.7,
+                      max.time = 2) +
+      theme_linedraw() +
+      xlim(-3.5,3.5) + ylim(0,30) +
+      ggtitle(paste0("Sanin: PGE2 M2 vs M2 | ",q))
+    )
+    dev.off()
+    PDF(paste0("Ext.Fig.6B.Sanin.",q,".UL"),w=5,h=5)
+    print(
+      ggplot(tmp, aes(x = log2FoldChange, y = logP)) + 
+      geom_point(size = 0.4,color ="grey")+
+      geom_point(size = 1, color = "#354f52",  data = subset(tmp, Group %in% q  ) )+
+      theme_linedraw() +
+      xlim(-3,3) + ylim(0,20) +
+      ggtitle(paste0("Sanin: PGE2 M2 vs M2 | ",q))
+    )
+    dev.off()
+    }
+}
+
+```
+##Ext Fig 7C GSEA [Running]
+```{r}
+GSEA = Sanin$GSEA
+DE = Sanin$DE
+DE$Genes = DE$mgi_symbol
+selected.pathway = c("HALLMARK_OXIDATIVE_PHOSPHORYLATION","HALLMARK_MYC_TARGETS_V1")
+for(i in c("BMDM")){
+  tmp1 = DE %>% dplyr::select(Genes, log2FoldChange) %>% arrange(log2FoldChange) 
+  tmp1 = tmp1[!is.na(tmp1$Genes),]
+  tmp1 = tmp1[!is.na(tmp1$log2FoldChange ),]
+  tmp2 = GSEA %>% as.data.frame()
+  rownames(tmp2) = tmp2$pathway
+  ranks = deframe(tmp1)
+  for(p in selected.pathway){
+    tmp3 = paste0("NES = ",tmp2[p,"NES"],"\n p-value = ", tmp2[p,"pval"],"\n adjusted p-value = ", tmp2[p,"padj"])
+    PDF(paste0("Ext.Fig.6C.Sanin.GSEAPlot.",i,".",p),w=4,h=3)
+    print(plotEnrichment(mfgsea_sets[[p]], ranks,gseaParam = 1,ticksSize = 0.3  ) + ggtitle(paste0(i," | ", p),tmp3)  )
+    dev.off()
+    tmp = plotEnrichment(mfgsea_sets[[p]], ranks,gseaParam = 1,ticksSize = 0.3  ) + 
+      theme_classic() + 
+      theme(title = element_text(size=5), axis.title = element_blank(),axis.text = element_text(color = "black"))
+    tmp$layers[[1]]$aes_params$colour = "#354f52"
+    a = tmp$layers[[3]]$data
+    tmp$layers[[6]]$mapping$y = as.numeric(a-0.1)
+    tmp$layers[[6]]$mapping$yend= as.numeric(a-0.2)
+    tmp$layers[[6]]$aes_params$size=0.3
+    tmp$layers[[6]]$aes_params$colour = "#84A98C"
+    #tmp$layers[[5]] = NULL
+    tmp$layers[[5]] = geom_line(color ="#354f52",size=1)
+    #tmp$layers[[5]] = geom_smooth(se = F,color ="black")
+    tmp$layers[[2]]$aes_params$colour = "black"
+    tmp$layers[[3]]$aes_params$colour = "black"
+    PDF(paste0("Ext.Fig.6C.Sanin.GSEAPlot.",i,".",p,".UL"),w=5,h=2)
+    print(tmp )
+    dev.off()
+  }
+}
+
+```
+
+
+
+#Ext Figure 8 In vitro CD8
+##Ext Fig 8D Glycolysis DotPlot FC+p-value x Celltype
+```{r}
+#DE2 <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC.DE_Specimen.Celltype4.230713.converted.rds")
+DE2 <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/BOC.DE_Specimen.Celltype.230713.converted.rds")
+#DE2 <- readRDS("~/RStudioProject/scRNA/BOC.DE_Specimen.Celltype.230713.converted.rds")
+df = DE2$df
+selected.cluster = c("T_CD8","T_CD4","T_CD4_FOXP3","TIM")
+GeneSet$DE$Glycolysis4 = fgsea_sets$REACTOME_GLYCOLYSIS %>% setdiff(c("ALDOB","ALDOC","GAPDHS","GCK","GCKR","PFKFB1","PKLR"))
+for(i in c("Glycolysis4") ){
+  selected.genes = unlist( GeneSet$DE[[i]] ) %>% unique()
+  df1 = filter(df, Genes %in% selected.genes )  %>% filter(Cluster %in% selected.cluster)
+  df1$Genes = factor(df1$Genes, levels = selected.genes  )
+  df1 = pCat(df1, "p_val")
+  #df1 = pCat(df1, "p_val_adj")
+  Fsize = 5
+  a = max(abs(df1$avg_log2FC))+0.2 
+  plot = ggplot(df1, aes(y = Dataset , x = Genes  ) ) + 
+    facet_grid(Cluster ~ . , scales = "free", space="free", switch = "y") +
+    theme_classic() + 
+    geom_point(aes(color = avg_log2FC, size = pval_cat))+
+    scale_size_manual(values = c(0.6,1.2,1.3,1.4)) + 
+    scale_color_gradientn(colours = Col.HiLow.9Shades,
+                          values =  c( 0,0.1, 0.43,0.47 , 0.5 , 0.53,0.57 ,0.9,  1 ) ,
+                          limits = c(-a,a) 
+                          ) +
+    theme(plot.title = element_blank(),
+          axis.title = element_blank(),
+          axis.text.x = element_text(size =5, family = "Arial", color = "black", face = "italic",angle = 90, hjust =1, vjust =0.3),
+          axis.text.y = element_text(size =5, family = "Arial", color = "black"),
+          axis.line = element_line(colour = 'black', size = 0.25),
+          axis.ticks = element_line(colour = 'black', size = 0.15),
+          axis.ticks.length = unit(0.05,"cm"),
+          strip.background = element_rect(fill = "white"),
+          strip.placement = "outside",
+          #strip.text.x.top = element_text(size =5, family = "Arial",colour = "black"),
+          strip.text = element_text(size =6, family = "Arial",colour = "black",
+                                    margin = margin(t = 0.1, r = 0.1, b = 0.1, l = 0.1, unit = "cm") ),
+          legend.key.size = unit(0.1, 'in'),
+          legend.title = element_text(size = 5),
+          legend.text = element_text(size=4),
+		      plot.margin = margin(t = 0, r = 0, b = 0, l = 0  ),
+          legend.position = "bottom")
+  PDF(paste0("Ext.Fig.7D.BOC.DE.perSpec.Heatmap.Celltype.pval.",i), h = 4.5, w = 4.5  )
+  print(plot)
+  dev.off()
+}
+
+for(i in c("Glycolysis4") ){
+  selected.genes = unlist( GeneSet$DE[[i]] ) %>% unique()
+  df1 = filter(df, Genes %in% selected.genes )  %>% filter(Cluster %in% selected.cluster)
+  df1$Genes = factor(df1$Genes, levels = selected.genes  )
+  df1 = pCat(df1, "p_val")
+  Fsize = 5
+  a = max(abs(df1$avg_log2FC))+0.2 
+  df1$psig = "ns"
+  df1$psig[df1$p_val<0.05] = "*"
+  df1$psig = factor(df1$psig, levels = c("ns","*"))
+  plot = ggplot(df1, aes(y = Dataset , x = Genes  ) ) + 
+    facet_grid(Cluster ~ . , scales = "free", space="free", switch = "y") +
+    theme_classic() + 
+    geom_point(aes(color = avg_log2FC,fill = avg_log2FC, size = pval_cat, shape = psig) )+
+    scale_size_manual(values = c(0.6,1.2,1.3,1.4)) + 
+    scale_shape_manual( values=c(1,21))+
+    scale_color_gradientn(colours = Col.HiLow.9Shades,
+                          values =  c( 0,0.1, 0.43,0.47 , 0.5 , 0.53,0.57 ,0.9,  1 ) ,
+                          limits = c(-a,a) 
+                          ) +
+    scale_fill_gradientn(colours = Col.HiLow.9Shades,
+                          values =  c( 0,0.1, 0.43,0.47 , 0.5 , 0.53,0.57 ,0.9,  1 ) ,
+                          limits = c(-a,a) 
+                          )  +
+    theme(plot.title = element_blank(),
+          axis.title = element_blank(),
+          axis.text.x = element_text(size =5, family = "Arial", color = "black", face = "italic",angle = 90, hjust =1, vjust =0.3),
+          axis.text.y = element_text(size =5, family = "Arial", color = "black"),
+          axis.line = element_line(colour = 'black', size = 0.25),
+          axis.ticks = element_line(colour = 'black', size = 0.15),
+          axis.ticks.length = unit(0.05,"cm"),
+          strip.background = element_rect(fill = "white"),
+          strip.placement = "outside",
+          #strip.text.x.top = element_text(size =5, family = "Arial",colour = "black"),
+          strip.text = element_text(size =6, family = "Arial",colour = "black",
+                                    margin = margin(t = 0.1, r = 0.1, b = 0.1, l = 0.1, unit = "cm") ),
+          legend.key.size = unit(0.1, 'in'),
+          legend.title = element_text(size = 5),
+          legend.text = element_text(size=4),
+		      plot.margin = margin(t = 0, r = 0, b = 0, l = 0  ),
+          legend.position = "bottom")
+  PDF(paste0("Ext.Fig.7D.BOC.DE.perSpec.Heatmap.Celltype.pval.v2.",i), h = 4.5, w = 4.5  )
+  print(plot)
+  dev.off()
+}
+
+```
+#Ext Figure 9 CD4 T cell (Beyer)
+##Ext Fig 8A GSEA (NES)
+```{r}
+DE = readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/PublicBulkRNA/Schultze.CD4/DE.CD4.Schultze-Meyer.230908.rds")
+#DE =readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/PublicBulkRNA/Schultze.CD4/DE.CD4.Schultze-Meyer.230829.rds")
+df = DE$Beyer2.GSEA2 %>% filter(pathway %in% names(fgsea_sets_H))
+df = df[c(1:6,41:50),]
+df$pathway = factor(df$pathway, levels = df$pathway)
+df$Change = "Down"
+df$Change[c(df$NES>0)] = "Up"
+df$Change = factor(df$Change,levels = c("Up","Down"))
+df$p_val_cat = df$padj
+df$p_val_cat[df$padj> 0.05 ] = ">0.05"
+df$p_val_cat[df$padj < 0.05 ] = "<0.05"
+df$p_val_cat[df$padj < 0.01 ] = "<0.01"
+df$p_val_cat[df$padj < 0.001 ] = "<0.001"
+df$p_val_cat = factor(df$p_val_cat, levels = c(">0.05","<0.05","<0.01","<0.001"))
+
+for(i in 1){
+  PDF("Ext.Fig.8A.Beyer.GSEA.NES",w=3.9,h=1.9)
+  Fsize = 5
+  a = max(abs(df$NES))+0.2 
+  print(
+    ggplot(df, aes(y = fct_rev(pathway), x= NES))+
+      geom_bar(stat = "identity", aes(fill = p_val_cat)) + 
+      scale_fill_manual(values = c("#CCDBDC","#9AD1D4","#80CED7","#007EA7","#00547A"))+
+      theme_classic() +
+      theme(axis.text.x = element_text(size =Fsize, family = "Arial", color = "black"),
+            axis.text.y = element_text(size =Fsize, family = "Arial", color = "black"),
+            axis.title.x = element_text(size =Fsize+1, family = "Arial", color = "black"),
+            axis.title.y = element_blank(),
+            axis.line = element_line(colour = 'black', linewidth = 0.25),
+            axis.ticks = element_line(colour = 'black', linewidth = 0.15),
+            legend.key.size = unit(0.1, 'in'),
+            legend.title = element_text(size = Fsize,family = "Arial", color = "black"),
+            legend.text = element_text(size=Fsize-1,family = "Arial", color = "black"),
+            plot.margin = margin(t = 0, r = 0, b = 0, l = 0  ),
+            legend.position = "right"
+      ) +
+      xlim(-a,a)
+  )
+  dev.off()
+}
+
+```
+
+
+
+
+##Ext Fig 8B GSEA (Running)
+```{r}
+selected.pathway = c("HALLMARK_OXIDATIVE_PHOSPHORYLATION","HALLMARK_MYC_TARGETS_V1","HALLMARK_IL2_STAT5_SIGNALING","MOOTHA_PGC")
+df = DE$Beyer2
+GSEA = DE$Beyer2.GSEA
+GSEA %>% filter(pathway %in% selected.pathway)
+for(i in c("CD4")){
+  tmp1 = df %>% dplyr::select(Genes, logFC) %>% arrange(logFC) 
+  tmp1 = tmp1[!is.na(tmp1$Genes),]
+  tmp1 = tmp1[!is.na(tmp1$logFC ),]
+  tmp2 = GSEA %>% as.data.frame()
+  rownames(tmp2) = tmp2$pathway
+  ranks = deframe(tmp1)
+  for(p in selected.pathway){
+    tmp3 = paste0("NES = ",tmp2[p,"NES"],"\n p-value = ", tmp2[p,"pval"],"\n adjusted p-value = ", tmp2[p,"padj"])
+    
+    PDF(paste0("Ext.Fig.8B.Beyer_CD4.GSEAPlot.",i,".",p),w=4,h=2.5)
+    print(plotEnrichment(fgsea_sets[[p]], ranks,gseaParam = 1,ticksSize = 0.3  ) + ggtitle(paste0(i," | ", p),tmp3)  )
+    dev.off()
+    
+    tmp = plotEnrichment(fgsea_sets[[p]], ranks,gseaParam = 1,ticksSize = 0.3  ) + 
+      #ggtitle(paste0(i," | ", p),tmp3) + 
+      theme_classic() + 
+      theme(title = element_text(size=5), axis.title = element_blank(),axis.text = element_text(color = "black"))
+    #tmp$layers[[1]]$aes_params$shape = 21
+    tmp$layers[[1]]$aes_params$colour = "#80CED7"
+    #tmp$layers[[1]]$aes_params$fill = "firebrick"
+    #tmp$layers[[1]]$aes_params$size= 1.5
+    a = tmp$layers[[3]]$data
+    tmp$layers[[6]]$mapping$y = as.numeric(a-0.1)
+    tmp$layers[[6]]$mapping$yend= as.numeric(a-0.2)
+    tmp$layers[[6]]$aes_params$size=0.3
+    tmp$layers[[6]]$aes_params$colour = "#007EA7"
+    #tmp$layers[[5]] = NULL
+    tmp$layers[[5]] = geom_line(color ="#80CED7",size=1)
+    #tmp$layers[[5]] = geom_smooth(se = F,color ="black")
+    tmp$layers[[2]]$aes_params$colour = "black"
+    tmp$layers[[3]]$aes_params$colour = "black"
+    PDF(paste0("Ext.Fig.8B.Beyer_CD4.GSEAPlot.",i,".",p,".UL"),w=4,h=2)
+    print(tmp )
+    dev.off()
+  }
+}
+```
+
+##Ext Fig 8C Heatmap
+```{r}
+Beyer =readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/PublicBulkRNA/Schultze.CD4/Beyer.230829.rds")
+DE <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/PublicBulkRNA/Schultze.CD4/DE.CD4.Schultze-Meyer.230829.rds")
+df = Beyer$Beyer2.df
+
+GeneSet$DE$tmp = c(GeneSet$DE$CD4.Beyer,GeneSet$DE$ETC.Ref2 ,GeneSet$DE$Ribosome )
+tmp1 = filter(DE$Beyer2, Genes %in% GeneSet$DE$ETC.Ref2[["Complex I"]] ) %>% arrange(P.Value)
+
+GeneSet$DE$ETC.Beyer = list("Complex I" = tmp1$Genes[1:15],
+                            "Complex II" = intersect(GeneSet$DE$ETC[["Complex II"]]  ,fgsea_sets$WP_MITOCHONDRIAL_COMPLEX_II_ASSEMBLY),  
+                            "Complex III" = intersect(GeneSet$DE$ETC[["Complex III"]] , fgsea_sets$WP_MITOCHONDRIAL_COMPLEX_III_ASSEMBLY),
+                            "Complex IV" = intersect(GeneSet$DE$ETC[["Complex IV"]] , fgsea_sets$WP_MITOCHONDRIAL_COMPLEX_IV_ASSEMBLY),
+                            "Complex V" = intersect(GeneSet$DE$ETC[["Complex V"]]  ,fgsea_sets_c5$GOCC_PROTON_TRANSPORTING_ATP_SYNTHASE_COMPLEX)
+                            )
+
+tmp1 = filter(DE$Beyer2, Genes %in% GeneSet$DE$Ribosome[["Large subunit"]] ) %>% arrange(P.Value)
+tmp2 = filter(DE$Beyer2, Genes %in% GeneSet$DE$Ribosome[["Small subunit"]] ) %>% arrange(P.Value)
+GeneSet$DE$Ribosome.Beyer = list("Large subunit" = tmp1$Genes[1:20], 
+                                 "Small subunit" = tmp2$Genes[1:20])
+GeneSet$DE$tmp = c(GeneSet$DE$CD4.Beyer, 
+                   GeneSet$DE$ETC.Beyer,
+                   GeneSet$DE$Ribosome.Beyer
+                   )
+for(i in c("tmp") ){
+  df1 = GeneGroup(df,GeneSet$DE[[i]] )
+  df1 = arrange(df1,Genes)
+  df1$Genes_ProbeID = factor(df1$Genes_ProbeID, levels = unique(df1$Genes_ProbeID))
+  Fsize = 6
+  a = max(abs(df1$Expression))+0.2 
+  PDF(paste0("Ext.Fig.8CDE.Beyer_CD4.Heatmap.",i), h = 1.6, w = 9 )
+  print(
+    ggplot(df1, aes(y = Sample, x = Genes ) ) + 
+      facet_grid(. ~ Set , scales = "free", space="free", switch = "y")+
+      geom_tile(color = "white",aes(fill =Expression) ) +  
+      scale_fill_gradientn(colours = Col.HiLow.9Shades   )+
+      theme_classic() +  
+      theme(plot.title = element_blank(),
+          axis.text.x = element_text(size =Fsize, family = "Arial", color = "black", face = "italic",angle = 90, hjust =1, vjust =0.3),
+          axis.text.y = element_text(size =Fsize, family = "Arial", color = "black"),
+          axis.line = element_line(colour = 'black', linewidth = 0.25),
+          axis.ticks = element_line(colour = 'black', linewidth = 0.15),
+          axis.ticks.length = unit(0.05,"cm"),
+          axis.title = element_blank(), 
+          strip.text.y = element_blank(),
+          strip.text.x.top = element_text(size =Fsize, family = "Arial",colour = "black",
+                                          margin = margin(t = 0.02, r = 0, b = 0.02, l = 0, unit = "cm") ),
+          strip.background = element_rect(fill = "white",linewidth = 0.35),
+          strip.background.y =  element_blank(),
+          strip.placement = "outside",
+          legend.key.size = unit(0.1, 'in'),
+                        legend.title = element_text(size = Fsize,family = "Arial", color = "black"),
+                        legend.text = element_text(size=Fsize-1,family = "Arial", color = "black"),
+          plot.margin = margin(t = 0, r = 0, b = 0, l = 0  ),
+          legend.position = "bottom"
+          )
+  )
+  dev.off()
+}
+```
+
+#============
+
+#Supplement Data (LLC/Bonavita/Myeloid)
+##Fig 5A GSEA NES+pvalue 
+```{r}
+GSEA = readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/LLC/GSEA.LLC.Celltype3.nperm50k.230823.rds")
+selected.pathway = c("HALLMARK_INTERFERON_GAMMA_RESPONSE")
+selected.cluster = names(GSEA$Day1.5) %>% setdiff("Doublet")
+df = data.frame()
+for(t in c("Day1.5")){
+  for(c in selected.cluster ){
+    tmp1 = GSEA[[t]][[c]] %>% as.data.frame() %>% filter(pathway %in% selected.pathway)
+    tmp1$Cluster = c
+    tmp1$Time = t
+    df = rbind(df,tmp1)
+  }
+}
+df$pathway = factor(df$pathway, levels = selected.pathway)
+df$Cluster = factor(df$Cluster, levels = selected.cluster )
+df$pval_cat = ">0.05"
+df$pval_cat[(df$padj < 0.05)] = "0.05-0.01"
+df$pval_cat[(df$padj < 0.01)] = "0.01-0.001"
+df$pval_cat[(df$padj < 0.001)] = "<0.001"
+df$pval_cat = factor(df$pval_cat, levels = c(">0.05","0.05-0.01","0.01-0.001","<0.001"))
+tmp = max(abs(df$NES)) %>% ceiling()
+range(df$NES)
+for(p in selected.pathway){
+  df1 = filter(df, pathway == p)
+  PDF(paste0("Fig.5A.LLC1.Day1.5.NES_pvalue.",p),w=4.5,h=3)
+  print(
+    ggplot(df1,aes(x = NES, y = fct_rev(Cluster) ) )+
+      geom_point(aes(size = pval_cat, fill = NES),shape = 21)+
+      geom_vline(xintercept = 0, linetype = "dashed" )+
+      scale_fill_gradientn(colours =c("#ffffff","#fce487","#f9c80e","#f86624","#ea3546") )+
+      #scale_fill_manual(values = c("#01295f","orange","#f86624","firebrick") )+
+      #ggtitle(p)+
+      theme_classic()+
+      xlim(-tmp,tmp)+
+      #facet_grid(Time ~., scale = "free", space = "free",switch = "y") +
+      theme(plot.title = element_text(size = 10),
+            axis.text =element_text(color="black"),
+            strip.placement = "outside",
+            axis.title.y.left = element_blank())
+  )
+  dev.off()
+}
+```
+
+##Fig 5B Heatmap IFNG
+```{r}
+df = LLCDF$df.DE.Celltype3 
+for(i in c("IFNG") ){
+  selected.genes = unlist( geneSet[[i]] ) %>% unique()
+  df1 = filter(df, Genes %in% selected.genes ) %>% filter(Cluster %in% selected.cluster)
+  df1$Genes = factor(df1$Genes, levels = selected.genes  ) 
+  if( class(geneSet[[i]]) == "list"){
+    tmp = data.frame(matrix(ncol = (ncol(df1)+1), nrow = 0))
+    colnames(tmp) = c(colnames(df1),"Set")
+    for(j in names(geneSet[[i]])){
+      tmp1 = filter(df1, Genes %in% geneSet[[i]][[j]] ) %>% filter(!Genes %in% tmp[,1])
+      tmp1$Set = j
+      tmp = rbind(tmp,tmp1)
+    }
+    tmp$Set = factor(tmp$Set, levels = names(geneSet[[i]]))
+    df1 = tmp
+    plot = ggplot(df1, aes(y = fct_rev(Cluster), x = Genes  ) ) + facet_grid(Dataset ~ Set, scales = "free", space="free", switch = "y") 
+                  
+  } else {
+    plot = ggplot(df1, aes(y = fct_rev(Cluster), x = Genes  ) ) + facet_grid(Dataset ~ . , scales = "free", space="free", switch = "y") 
+  }
+  plot = plot + theme_classic() + Dot_axis90A + ggtitle(i)+
+                  geom_tile(color = "white",aes(fill =avg_log2FC)) +  
+                  scale_fill_gradientn(colours = Col.HiLow.9Shades,values = scales::rescale(c(min(df1$avg_log2FC),-0.1,0,0.1,max(df1$avg_log2FC)) ) )+
+                  #scale_fill_gradientn(colours = Col.HiLow.Up, values = scales::rescale( c(0,0.1,max(df1$avg_log2FC)) ) ) +
+                  theme(plot.title = element_blank(),
+                        axis.title = element_blank(), 
+                        axis.text.x = element_text(size =16, face = "italic",color = "black"),
+                        axis.text.y = element_text(size =16, color = "black"),
+                        #strip.text.y.left = element_text(size =18, face = "bold", color = "black",angle = 0),
+                        strip.text.x.top = element_text(size =18, face = "bold", color = "black",angle = 0),
+                        strip.background = element_rect(fill = "white"),
+                        strip.placement = "outside",
+                        legend.position = "right"
+                        )
+                
+  PDF(paste0("Fig.5B.LLC.Heatmap.TNK.",i), h = 4, w = c(3.5 + (length(unique(df1$Genes))*0.23) ))
+  print(plot)
+  dev.off()
+}
+
+```
+
+##Fig 5C Bona: UMAP
+```{r}
+Bona <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA.Public/Bonavita/Bonavita.QC.230714.rds")
+Bona <- readRDS("~/RStudioProject/scRNA.Public/Bonavita/Bonavita.QC.230714.rds")
+BonaDF = list()
+Bona = Clustering1(Bona, spread =1,dist =2,  group = "orig.ident")
+Bona = RunUMAP(Bona, reduction = "harmony", dims = 1:30, min.dist = 2, spread = 1 )
+Idents(Bona) = Bona$Identity.Celltype2
+Bona = RenameIdents(Bona, "B_lymphocyte"="Bcell","Mono" = "Mono-TAM","TAM"="Mono-TAM")
+Bona$Identity.Celltype3 = factor(Idents(Bona) ,levels = c("NK","Tcell","TAN","Mono-TAM","cDC1","cDC2","mregDC","pDC","Bcell","Dividing"))
+Idents(Bona) = Bona$Identity.Celltype3
+DimPlot(Bona)
+for(i in 1){
+  PDF("Fig.5C.Bona.Celltype3.UMAP",w=5,h=5)
+  print(DimPlot(Bona,label = F,cols = c("#f57f26","cyan4",
+                                 "#252d6b",
+                                 "#d51f24", #"#fcb900",
+                                 "#2D3D98","#1e8b40","#a83a2b","#7D387D","purple3",
+                                 "#7A5532","grey") ) +NoLegend() )
+  dev.off()
+  PDF("Fig.5C.Bona.Celltype3.UMAP.L",w=7,h=5)
+  print(DimPlot(Bona,label =T,cols = c("#f57f26","cyan4",
+                                 "#252d6b",
+                                 "#d51f24", #"#fcb900",
+                                 "#2D3D98","#1e8b40","#a83a2b","#7D387D","purple3",
+                                 "#7A5532","grey") )  )
+  dev.off()
+}
+```
+
+##Fig 5D Bona: Volcano
+```{r}
+Idents(Bona) = Bona$orig.ident
+BonaDF[["DE.KOaNK_KO"]] = FindMarkers(Bona, ident.1 = "KOaNK", ident.2 = "KO",  logfc.threshold = 0.01, min.pct = 0.01) %>% as_tibble(rownames = "Genes") 
+#saveRDS(BonaDF, "~/RStudioProject/scRNA.Public/Bonavita/BoDF.230825.rds")
+df = BonaDF[["DE.KOaNK_KO"]]
+selected.genes = c("Ifng")
+p = "Ifng"
+for(i in 1){
+    tmp =df
+    tmp$logP = (-1)*(log10(tmp$p_val_adj))
+    tmp1 = tmp %>% filter(Genes %in% selected.genes )
+    tmp1$Group = p
+    tmp2 = tmp %>% filter(!Genes %in% selected.genes )
+    tmp2$Group = "other"
+    tmp = rbind(tmp1,tmp2)
+    tmp$logP %>% range()
+    tmp = tmp[!is.na(tmp$logP),]
+    tmp = filter(tmp, !logP == "Inf")
+    tmp = filter(tmp, !avg_log2FC == "Inf")
+    a = ceiling(max(tmp$logP) ) 
+    b = ceiling( max(abs(range(tmp$avg_log2FC))) )
+    PNG("Fig.5D.Bona.Volcano.Ifng",w=3,h=4,r=400)
+    print(
+      ggplot(tmp, aes(x = avg_log2FC, y = logP)) + 
+      geom_point(size = 0.4,color ="grey")+
+      geom_point(size = 1, color = "red",  data = subset(tmp, Group %in% p  ) )+
+      geom_text_repel(aes(label = Genes),color ="black",size =5,
+                      fontface ="italic", 
+                      data = subset(tmp, Group == p) , 
+                      #max.overlaps = Inf,box.padding = 1,
+                      max.overlaps = 50,box.padding = 1,
+                      max.time = 2) +
+      #theme_linedraw() +
+        theme_classic()+
+      #xlim(-b,b) + ylim(0,a+10) 
+      xlim(-0.8,0.8) + ylim(0,50) +
+        ylab("-log(adj.p-value)")+
+        xlab("Log2(Fold change)")
+    )
+    dev.off()
+}
+
+
+```
+
+
+##Ext Fig Bona: UMAP/ Dot plot signature
+```{r}
+Idents(Bona) = Bona$Identity.Celltype3
+BonaDF[["AllMarker.Celltype3"]] = FindAllMarkers(Bona, max.cells.per.ident = 200)
+#saveRDS(BonaDF, "~/RStudioProject/scRNA.Public/Bonavita/BoDF.230825.rds")
+BonaDF[["AllMarker.Celltype3"]] %>% group_by(cluster) %>% top_n(n=20, wt=avg_log2FC)
+selected.genes = c("Klrb1c","Eomes","Il2rb","Gzma","Prf1","Cd3d","Trac","Trbc2","Cd28","S1pr1","S100a8","S100a9","Ptgs2","Il1r2","Cxcr2","Apoe","Fn1","C1qa","Arg1","Lyz2","Flt3","Xcr1","Clec9a","Cd24","Irf8","Cd209a","Clec10a","H2-Aa","H2-DMb1","Ccr7","Ccl2","Il4i1","Ccl5","Siglech","Cd7","Ccr9","Cd209d","Runx2","Cd79a","Igkc","Ms4a1","Ighd","Ighm","Stmn1","Mki67","Top2a","Tubb5","Hmgb2")
+
+Idents(Bona) = RevIden(Idents(Bona))
+for(i in 1){
+  PNG(paste0("Ext.Fig.5A.Bona.Signature"), h = 3.7, w = c(2 + (length(unique(df1$Genes))*0.15) ), r=400 )
+  print(
+    DotPlot(Bona,features = selected.genes)+Dot_axis90A + scale_viridis+theme(axis.title = element_blank())
+  )
+  dev.off()
+}
+
+```
