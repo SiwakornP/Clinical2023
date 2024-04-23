@@ -218,7 +218,7 @@ for(i in c("CD8.Overview3") ){
     ggtitle(i)+
     geom_tile(color = "white",aes(fill =avg_log2FC)) +  
     scale_fill_gradientn(colours = Col.HiLow.9Shades,
-                         values =  c( 0,0.43,0.5,0.57,  a ),                                 
+                         values =  c( 0,0.43,0.5,0.57,  1 ),                                 
                          limits = c(-a,a) ) +
     theme(plot.title = element_blank(),
           axis.text.x = element_text(size =Fsize, family = "Arial", color = "black", face = "italic",angle = 90, hjust =1, vjust =0.3),
@@ -295,7 +295,7 @@ for(i in c("CD8.Overview3") ){
     ggtitle(i)+
     geom_tile(color = "white",aes(fill =avg_log2FC)) +  
     scale_fill_gradientn(colours = Col.HiLow.9Shades,
-                         values =  c( 0,0.43,0.5,0.57,  a ),                                 
+                         values =  c( 0,0.43,0.5,0.57,  1 ),                                 
                          limits = c(-a,a) ) +
     theme(plot.title = element_blank(),
           axis.text.x = element_text(size =Fsize, family = "Arial", color = "black", face = "italic",angle = 90, hjust =1, vjust =0.3),
