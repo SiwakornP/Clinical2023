@@ -1,0 +1,115 @@
+---
+title: "Data integration and cell type annotation of Demo datasets"
+author: "Siwakorn P"
+date: "2024-04-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+#Library
+```{r}
+library(Seurat)
+library(tidyverse)
+library(harmony)
+library(scales)
+library(fgsea)
+library(msigdbr)
+library(biomaRt)
+library(extrafont)
+```
+
+#Instant command
+```{r}
+Clustering1 <- function(tmp,dim=30,res=0.3,spread =1, dist = 1,group = "ID" ){
+      DefaultAssay(tmp) = "RNA"
+      tmp <- NormalizeData(tmp) %>% FindVariableFeatures() %>% ScaleData() %>% RunPCA(verbose = FALSE)
+      tmp <- RunHarmony(tmp, group.by.vars = group)
+      tmp <- RunUMAP(tmp, reduction = "harmony", dims = 1:dim, min.dist = dist, spread = spread )
+      tmp <- FindNeighbors(tmp, reduction = "harmony", dims = 1:dim) %>% FindClusters(resolution = res)
+      return(tmp)
+}
+```
+
+#Demo dataset preparation
+1. Download
+10x Genomics PBMC: https://www.10xgenomics.com/datasets/10k-human-pbmcs-5-v2-0-chromium-x-with-intronic-reads-2-standard
+10x Genomics BMMNC : https://www.10xgenomics.com/datasets/10k-bone-marrow-mononuclear-cells-bmmncs-5-v2-0-without-intronic-reads-2-standard
+
+2. Extraction
+- Extract PBMC to PBMC folder
+- Extract BMMNC to BMMNC folder
+
+#Data integration
+Running time: 69 seconds (on Apple MacBook Air M2 16GB RAM, macOS 14.4.1)
+```{r,fig.width=3,fig.height=3}
+ID = c("PBMC","BMMNC")
+CellRangerDir = paste0("YourWorkingDirectory/",ID)
+
+RNA = list()
+for(i in 1:length(CellRangerDir)){
+      print(paste0(i," : ",ID[[i]]))
+      tmp = Read10X(data.dir = CellRangerDir[i]  )
+      if(is.list(tmp)){
+        RNA[[i]] <- CreateSeuratObject(counts = tmp$`Gene Expression`, min.cells = 3, min.features = 10, project = ID[[i]])
+      } else{
+        RNA[[i]] <- CreateSeuratObject(counts = tmp, min.cells = 3, min.features = 10, project = ID[[i]])
+      }
+      RNA[[i]] = subset(RNA[[i]], nCount_RNA > 100)
+      RNA[[i]][["percent.mt"]] <- PercentageFeatureSet(RNA[[i]], pattern = "^MT-")
+      RNA[[i]]$CB.original = colnames(RNA[[i]])
+      RNA[[i]]$ID = RNA[[i]]$orig.ident
+      RNA[[i]]$CB.new = paste0(RNA[[i]]$ID,":", colnames(RNA[[i]]) )
+      RNA[[i]]$CB.new = gsub("-1","x",RNA[[i]]$CB.new)
+      RNA[[i]] <- RenameCells(RNA[[i]], new.names = RNA[[i]]$CB.new )
+}
+Integrated = merge(x = RNA[[1]],
+            y = RNA[2:length(RNA)],
+            merge.data = TRUE)
+RNA = NULL
+gc()
+DefaultAssay(Integrated) = "RNA"
+Integrated = subset(Integrated, percent.mt < 10)
+Integrated = Clustering1(Integrated)
+Integrated <- JoinLayers( Integrated )
+```
+
+#Cell type annotation
+##Plot canonical markers
+```{r,fig.width=3,fig.height=3}
+for(i in GeneSet$Markers$Lineage){
+  print(FeaturePlot(Integrated, features = i) + scale_orange )
+}
+
+for(i in GeneSet$Markers$TNK ){
+  print(FeaturePlot(Integrated, features = i) + scale_orange )
+}
+```
+
+##Annotation
+Running time: Negligible (on Apple MacBook Air M2 16GB RAM, macOS 14.4.1)
+```{r}
+Idents(Integrated) = Integrated$seurat_clusters
+Integrated = RenameIdents(Integrated, 
+                          '5' = "NK cell",
+                          '3' = "CD8 T cell",
+                          '0' = "CD4 T cell",
+                          '1' = "CD4 T cell",
+                          '7' = "Regulatory T cell",
+                          '2' = "Neutrophil",
+                          '8' = "Monocyte",
+                          '4' = "B cell",
+                          '14' = "Plasma cell",
+                          '6' = "CD8 T cell",
+                          '9' = "CD4 T cell",
+                          '10' = "Unknown",
+                          '11' = "LQ",
+                          '12' = "LQ",
+                          '13' = "Unknown")
+DimPlot(Integrated,label = T)+NoLegend()
+Integrated$Identity.Celltype = Idents(Integrated) 
+saveRDS(Integrated, "YourWorkingDirectory/Demo.Integrated.rds")
+```

@@ -1,0 +1,323 @@
+---
+title: "PTGER2 & PTGER4 Grouping and analysis"
+author: "Siwakorn P"
+date: "2024-04-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+#Library
+```{r}
+library(Seurat)
+library(tidyverse)
+library(harmony)
+library(scales)
+library(fgsea)
+library(msigdbr)
+library(biomaRt)
+library("org.Mm.eg.db")
+library(extrafont)
+```
+
+#Load Dataset
+Integrated data was derived from: 1_Data_Integration_and_Annotation.Rmd
+```{r}
+Integrated = readRDS("YourWorkingDirectory/Demo.Integrated.rds")
+```
+#------------------
+
+#Instant command
+##PTGER4 Grouping
+```{r}
+PTGER4.Group = function(Obj1, Identity = "Identity.Celltype", Batch = "Batch.scRNA"){
+      df = data.frame()
+      Cluster = unique(Obj1[[]][,Identity]) %>% as.character()
+      Idents(Obj1) = Identity
+      for(i in Cluster){
+            Obj2 = subset(Obj1, idents = i)
+            AllBatch = unique(as.character(Obj2[[]][,Batch] ))
+            for(j in AllBatch ){
+                  Idents(Obj2) = Batch
+                  Obj3 = subset(Obj2, idents = j)
+                  tmp = FetchData(Obj3, vars = "PTGER4",slot="data") %>% arrange(desc(PTGER4))
+                  tmpA = filter(tmp,PTGER4 == 0)
+                  tmp = filter(tmp,PTGER4 != 0)
+                  if(nrow(tmpA) > 0 ) {
+                        tmpA$PTGER4.Group = "Undetected"
+                        } 
+                  if(nrow(tmp) > 0 ) {
+                        tmp$PTGER4.Group = "Low"
+                        tmp$PTGER4.Group[1:round(nrow(tmp)/3)] = "High" 
+                        tmp$PTGER4.Group[(round(nrow(tmp)/3)+1):(round(nrow(tmp)/3*2))] = "Intermediate"
+                        }
+                  tmp = rbind(tmp,tmpA)
+                  if(nrow(tmp) > 0 ) {
+                        tmp$Cluster = i
+                        tmp$Batch = j
+                        }
+                  print(paste0(i," ",j, " ... ", (nrow(tmp) == ncol(Obj3)  ) ) )
+                  df = rbind(df,as_tibble(tmp,rownames="CB"))
+            }
+      }
+      print(paste0("Validation : ", nrow(df) == nrow(Obj1[[]]) ) )
+      tmp2 = df$PTGER4.Group
+      names(tmp2) = df$CB
+      return(tmp2)
+}
+```
+
+##PTGER2 Grouping
+```{r}
+PTGER2.Group = function(Obj1, Identity = "Identity.Celltype", Batch = "ID"){
+      df = data.frame()
+      Cluster = unique(Obj1[[]][,Identity]) %>% as.character()
+      Idents(Obj1) = Identity
+      for(i in Cluster){
+            Obj2 = subset(Obj1, idents = i)
+            AllBatch = unique(as.character(Obj2[[]][,Batch] ))
+            for(j in AllBatch ){
+                  Idents(Obj2) = Batch
+                  Obj3 = subset(Obj2, idents = j)
+                  tmp = FetchData(Obj3, vars = "PTGER2",slot="data") %>% arrange(desc(PTGER2))
+                  tmpA = filter(tmp,PTGER2 == 0)
+                  tmp = filter(tmp,PTGER2 != 0)
+                  if(nrow(tmpA) > 0 ) {
+                        tmpA$PTGER2.Group = "Undetected"
+                        } 
+                  if(nrow(tmp) > 0 ) {
+                        tmp$PTGER2.Group = "Low"
+                        tmp$PTGER2.Group[1:round(nrow(tmp)/2)] = "High" 
+                        }
+                  tmp = rbind(tmp,tmpA)
+                  if(nrow(tmp) > 0 ) {
+                        tmp$Cluster = i
+                        tmp$Batch = j
+                        }
+                  print(paste0(i," ",j, " ... ", (nrow(tmp) == ncol(Obj3)  ) ) )
+                  df = rbind(df,as_tibble(tmp,rownames="CB"))
+            }
+      }
+      print(paste0("Validation : ", nrow(df) == nrow(Obj1[[]]) ) )
+      tmp2 = df$PTGER2.Group
+      names(tmp2) = df$CB
+      return(tmp2)
+}
+```
+
+##DE analysis 
+```{r}
+FullDE <- function(Obj,Group = "PTGER4.Group", Batch = "ID",A = "High", B = "Low"){
+      DE = list()
+      Idents(Obj) = Batch
+      for(i in unique(Obj[[]][,Batch]) ){
+            tmp = subset(Obj, idents = i)
+            print(paste0(i," : ", ncol(tmp), " Cells"))
+            tryCatch({
+                  Idents(tmp) = Group
+                  print(summary(Idents(tmp)))
+                  DE[[i]] = FindMarkers(tmp,ident.1 = A, ident.2 = B, logfc.threshold = 0,min.pct =0.01 )
+            }, error = function(e){print(e)})
+      }
+      #Sum table
+      df = data.frame()
+      for(i in names(DE) ){
+            tmp = DE[[i]] %>% as_tibble(rownames = "Genes") %>% dplyr::select(Genes, avg_log2FC)
+            tmp$Datasets = i
+            df = rbind(df,tmp)
+      }
+      df = spread(df, Genes, avg_log2FC) %>% as.data.frame()
+      rownames(df) = df$Datasets
+      df = dplyr::select(df,-Datasets)
+      df2 = matrix(nrow = ncol(df),ncol=0) %>% data.frame()
+      rownames(df2) = colnames(df)
+      df2$Upregulation = "NA"
+      df2$Downregulation = "NA"
+      for(i in colnames(df)){
+            tmp = df[,i] > 0 
+            df2[i,"Upregulation"] = sum(tmp)
+            tmp = df[,i] < 0 
+            df2[i,"Downregulation"] = sum(tmp)
+      }
+      df2$Upregulation = as.numeric(df2$Upregulation)
+      df2$Downregulation = as.numeric(df2$Downregulation)
+      DE[["FoldChange.Table"]] = df
+      DE[["FoldChange.Sum"]] = df2
+      return(DE)
+}
+```
+
+#PTGER2/4 Grouping
+Running time: 18 seconds (on Apple MacBook Air M2 16GB RAM, macOS 14.4.1)
+
+Funtion PTGER4.Group() divide cells in each cell type in each specimen/batch (ID) into PTGER4 high, PTGER4 intermediate, and PTGER4 low equally
+Output: A vector contain PTGER4 group and cell barcode index
+
+Funtion PTGER2.Group() divide cells in each cell type in each specimen/batch (ID) into PTGER2 high and PTGER2 low equally
+Output: A vector contain PTGER2 group and cell barcode index
+```{r}
+tmp = PTGER4.Group(Integrated,Identity = "Identity.Celltype",Batch = "ID")
+Integrated = AddMetaData(Integrated,metadata = tmp, col.name = "PTGER4.Group")
+Integrated$PTGER4.Group = factor(Integrated$PTGER4.Group, levels = c("Undetected", "Low","Intermediate","High"))
+
+tmp = PTGER2.Group(Integrated,Identity = "Identity.Celltype",Batch = "ID")
+Integrated = AddMetaData(Integrated,metadata = tmp, col.name = "PTGER2.Group")
+Integrated$PTGER2.Group = factor(Integrated$PTGER2.Group, levels = c("Undetected", "Low","High"))
+```
+
+##DE analysis (PTGER4Hi - PTGER4Lo)
+Running time: 3 minutes (on Apple MacBook Air M2 16GB RAM, macOS 14.4.1)
+Function FullDE() computes DE Genes between population A (PTGER4 Hi) and population B (PTGER4 Lo)
+- Group: PTGER4 group name
+- Batch: specimen ID
+Expected output: a list with DE genes in each cell type
+
+```{r}
+DE = list()
+Idents(Integrated) = Integrated$Identity.Celltype
+selected.clusters = c("NK cell","CD8 T cell","CD4 T cell", "Regulatory T cell","Neutrophil","Monocyte")
+for(i in selected.clusters ){
+      print(i)
+      tmp = subset(Integrated, idents = i)
+      DE[[i]] = FullDE(tmp, Group = "PTGER4.Group", Batch = "ID" , A = "High", B = "Low" )
+}
+```
+
+###Create a single table of DE genes 
+```{r}
+df = data.frame()
+for(i in names(DE)){
+  tmp = names(DE[[i]]) %>% setdiff(c("FoldChange.Table","FoldChange.Sum"))
+  for(j in tmp ){
+      df1 = DE[[i]][[j]] %>% as_tibble(rownames = "Genes")
+      df1$Cluster = i
+      df1$Dataset = j
+      df = rbind(df,df1)
+      }
+}
+df$Cluster = factor(df$Cluster, levels= names(DE) )
+DE$df = df
+```
+
+###Plot Heatmap
+```{r}
+selected.cluster = c("CD8 T cell")
+for(i in c("CD8.Overview3") ){
+  selected.genes = unlist( GeneSet$DE[[i]] ) %>% unique()
+  df1 = filter(df, Genes %in% selected.genes )  %>% filter(Cluster %in% selected.cluster)
+  df1 = GeneGroup(df1, GeneSet$DE[[i]] )
+  Fsize = 6
+  a = max(abs(df1$avg_log2FC))+0.2 
+  plot = ggplot(df1, aes(y = Dataset , x = Genes  ) ) + 
+    facet_grid(Cluster ~ Set, scales = "free", space="free", switch = "y") + 
+    theme_classic() + 
+    Dot_axis90A + 
+    ggtitle(i)+
+    geom_tile(color = "white",aes(fill =avg_log2FC)) +  
+    scale_fill_gradientn(colours = Col.HiLow.9Shades,
+                         values =  c( 0,0.43,0.5,0.57,  a ),                                 
+                         limits = c(-a,a) ) +
+    theme(plot.title = element_blank(),
+          axis.text.x = element_text(size =Fsize, family = "Arial", color = "black", face = "italic",angle = 90, hjust =1, vjust =0.3),
+          axis.text.y = element_text(size =Fsize, family = "Arial", color = "black"),
+          axis.line = element_line(colour = 'black', size = 0.25),
+          axis.ticks = element_line(colour = 'black', size = 0.15),
+          axis.ticks.length = unit(0.05,"cm"),
+          axis.title = element_blank(), 
+          strip.text.y = element_blank(),
+          strip.text.x.top = element_text(size =Fsize, family = "Arial",colour = "black",
+                                          margin = margin(t = 0.1, r = 0, b = 0.1, l = 0, unit = "cm") ),
+          strip.background = element_rect(fill = "white",linewidth = 0.35),
+          strip.background.y =  element_blank(),
+          strip.placement = "outside",
+          legend.key.size = unit(0.1, 'in'),
+                        legend.title = element_text(size = Fsize),
+                        legend.text = element_text(size=Fsize-1),
+          
+          plot.margin = margin(t = 0, r = 0, b = 0, l = 0  ),
+          legend.position = "bottom"
+    )
+  print(plot)
+}
+
+```
+
+##DE analysis (PTGER2Hi - PTGER2Lo)
+Running time: 3.30 minutes (on Apple MacBook Air M2 16GB RAM, macOS 14.4.1)
+Function FullDE() computes DE Genes between population A (PTGER2 Hi) and population B (PTGER2 Lo)
+- Group: PTGER2 group name
+- Batch: specimen ID
+Expected output: a list with DE genes in each cell type
+
+```{r}
+DE = list()
+Idents(Integrated) = Integrated$Identity.Celltype
+selected.clusters = c("NK cell","CD8 T cell","CD4 T cell", "Regulatory T cell","Neutrophil","Monocyte")
+for(i in selected.clusters ){
+      print(i)
+      tmp = subset(Integrated, idents = i)
+      DE[[i]] = FullDE(tmp, Group = "PTGER2.Group", Batch = "ID" , A = "High", B = "Low" )
+}
+```
+###Create a single table of DE genes 
+```{r}
+df = data.frame()
+for(i in names(DE)){
+  tmp = names(DE[[i]]) %>% setdiff(c("FoldChange.Table","FoldChange.Sum"))
+  for(j in tmp ){
+      df1 = DE[[i]][[j]] %>% as_tibble(rownames = "Genes")
+      df1$Cluster = i
+      df1$Dataset = j
+      df = rbind(df,df1)
+      }
+}
+df$Cluster = factor(df$Cluster, levels= names(DE) )
+DE$df = df
+```
+
+###Plot Heatmap
+```{r}
+selected.cluster = c("CD8 T cell")
+for(i in c("CD8.Overview3") ){
+  selected.genes = unlist( GeneSet$DE[[i]] ) %>% unique()
+  df1 = filter(df, Genes %in% selected.genes )  %>% filter(Cluster %in% selected.cluster)
+  df1 = GeneGroup(df1, GeneSet$DE[[i]] )
+  Fsize = 6
+  a = max(abs(df1$avg_log2FC))+0.2 
+  plot = ggplot(df1, aes(y = Dataset , x = Genes  ) ) + 
+    facet_grid(Cluster ~ Set, scales = "free", space="free", switch = "y") + 
+    theme_classic() + 
+    Dot_axis90A + 
+    ggtitle(i)+
+    geom_tile(color = "white",aes(fill =avg_log2FC)) +  
+    scale_fill_gradientn(colours = Col.HiLow.9Shades,
+                         values =  c( 0,0.43,0.5,0.57,  a ),                                 
+                         limits = c(-a,a) ) +
+    theme(plot.title = element_blank(),
+          axis.text.x = element_text(size =Fsize, family = "Arial", color = "black", face = "italic",angle = 90, hjust =1, vjust =0.3),
+          axis.text.y = element_text(size =Fsize, family = "Arial", color = "black"),
+          axis.line = element_line(colour = 'black', size = 0.25),
+          axis.ticks = element_line(colour = 'black', size = 0.15),
+          axis.ticks.length = unit(0.05,"cm"),
+          axis.title = element_blank(), 
+          strip.text.y = element_blank(),
+          strip.text.x.top = element_text(size =Fsize, family = "Arial",colour = "black",
+                                          margin = margin(t = 0.1, r = 0, b = 0.1, l = 0, unit = "cm") ),
+          strip.background = element_rect(fill = "white",linewidth = 0.35),
+          strip.background.y =  element_blank(),
+          strip.placement = "outside",
+          legend.key.size = unit(0.1, 'in'),
+                        legend.title = element_text(size = Fsize),
+                        legend.text = element_text(size=Fsize-1),
+          
+          plot.margin = margin(t = 0, r = 0, b = 0, l = 0  ),
+          legend.position = "bottom"
+    )
+  print(plot)
+}
+
+```
+
