@@ -153,11 +153,11 @@ FullDE <- function(Obj,Group = "PTGER4.Group", Batch = "ID",A = "High", B = "Low
 #PTGER2/4 Grouping
 Running time: 18 seconds (on Apple MacBook Air M2 16GB RAM, macOS 14.4.1)
 
-Funtion PTGER4.Group() divide cells in each cell type in each specimen/batch (ID) into PTGER4 high, PTGER4 intermediate, and PTGER4 low equally
-Output: A vector contain PTGER4 group and cell barcode index
+Funtion PTGER4.Group() divides cells in each cell type in each specimen/batch (ID) into PTGER4 high, PTGER4 intermediate, and PTGER4 low equally
+Output: A vector contains PTGER4 group and cell barcode index
 
-Funtion PTGER2.Group() divide cells in each cell type in each specimen/batch (ID) into PTGER2 high and PTGER2 low equally
-Output: A vector contain PTGER2 group and cell barcode index
+Funtion PTGER2.Group() divides cells in each cell type in each specimen/batch (ID) into PTGER2 high and PTGER2 low equally
+Output: A vector contains PTGER2 group and cell barcode index
 ```{r}
 tmp = PTGER4.Group(Integrated,Identity = "Identity.Celltype",Batch = "ID")
 Integrated = AddMetaData(Integrated,metadata = tmp, col.name = "PTGER4.Group")
@@ -262,6 +262,7 @@ for(i in selected.clusters ){
       DE[[i]] = FullDE(tmp, Group = "PTGER2.Group", Batch = "ID" , A = "High", B = "Low" )
 }
 ```
+
 ###Create a single table of DE genes 
 ```{r}
 df = data.frame()
