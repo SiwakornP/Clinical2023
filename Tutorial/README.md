@@ -10,3 +10,7 @@ This is a tutorial to generate PTGER2 and PTGER4 expression group in and scRNA-s
 Immune cell classification guide: 1_Data_Integration_and_Annotation.Rmd
 
 PTGER2/4 Grouping and DE analysis: 2_PTGER_Grouping_DE_analysis.Rmd
+
+**Session info**
+![alt text](https://github.com/SiwakornP/PGE2_Bioenergetics/blob/main/Tutorial/sessionInfo.png?raw=true)
+
