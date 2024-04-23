@@ -1,0 +1,296 @@
+---
+title: "Gene Set"
+output: html_document
+date: "2024-04-20"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(gtools)
+library(tidyverse)
+```
+
+
+```{r}
+find <- function(object,gene){
+      rownames(object)[grep(gene,rownames(object) )] %>% mixedsort()
+}
+
+find2 <- function(Genes,SearchGenes){
+      Genes[grep(SearchGenes,Genes )]  %>% mixedsort()
+}
+```
+
+
+#Cross reference Human-Mouse
+##Mouse-Human Cross-ref
+```{r}
+mouse_human_genes = read.csv("http://www.informatics.jax.org/downloads/reports/HOM_MouseHumanSequence.rpt",sep="\t")
+mouse_human_genes <- read.delim("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/Ref/HOM_MouseHumanSequence.rpt", header=T)
+mouse_human_genes
+
+MGenes = filter(mouse_human_genes, Common.Organism.Name == "mouse, laboratory")$Symbol %>% mixedsort()
+HGenes = filter(mouse_human_genes, Common.Organism.Name == "human")$Symbol %>% mixedsort()
+
+#write.csv(mouse_human_genes, file ="//home/siwakorn/GO_term/mouse_human_genes.230112.csv")
+saveRDS(mouse_human_genes, file ="~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/Ref/mouse_human_genes.240423.rds")
+```
+
+###Jax
+```{r}
+ref = list()
+output = data.frame(matrix(ncol=2,nrow=0))
+colnames(output) = c("Mouse_gene","Human_gene")
+tmp1 = filter(mouse_human_genes,Common.Organism.Name == "mouse, laboratory")
+tmp1 = unique(tmp1$Symbol) %>% sort()
+for(gene in tmp1){
+  class_key = (mouse_human_genes %>% filter(Symbol == gene & Common.Organism.Name=="mouse, laboratory"))[['DB.Class.Key']]
+    if(!identical(class_key, integer(0)) ){
+      human_genes = (mouse_human_genes %>% filter(DB.Class.Key == class_key & Common.Organism.Name=="human"))[,"Symbol"]
+      for(human_gene in human_genes){
+        output[gene,] = c(gene,human_gene)
+      }
+    }
+}
+ref$M2H = output
+
+
+output = data.frame(matrix(ncol=2,nrow=0))
+colnames(output) = c("Human_gene","Mouse_gene")
+tmp1 = filter(mouse_human_genes,Common.Organism.Name == "human")
+tmp1 = unique(tmp1$Symbol) %>% sort()
+for(gene in tmp1){
+  class_key = (mouse_human_genes %>% filter(Symbol == gene & Common.Organism.Name=="human"))[['DB.Class.Key']]
+    if(!identical(class_key, integer(0)) ){
+      
+      mouse_genes = (mouse_human_genes %>% filter(DB.Class.Key == class_key & Common.Organism.Name=="mouse, laboratory"))[,"Symbol"]
+      for(mouse_gene in mouse_genes){
+        output[gene,] = c(gene,mouse_gene)
+      }
+    }
+}
+output
+
+ref$H2M = output
+
+saveRDS(ref, file = "~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/Ref/Ref_Mouse-Human.240423.rds")
+
+```
+
+
+##biomart
+```{r}
+library(org.Hs.eg.db)
+library(org.Mm.eg.db)
+library(biomaRt)
+hmart = useMart("ensembl", dataset = "hsapiens_gene_ensembl")
+hmart <- getBM(filters = "hgnc_symbol", 
+               attributes = c("ensembl_gene_id", "description","hgnc_symbol"),
+               mart = hmart) 
+
+hmart <- getBM(attributes = c("ensembl_gene_id", "hgnc_symbol","description", "go_id"), mart = hmart)
+ref$hmart = hmart
+
+mmart = useMart("ensembl", dataset = "mmusculus_gene_ensembl")
+mmart <- getBM(attributes = c("ensembl_gene_id", "mgi_symbol", "description", "go_id" , "external_gene_name"), mart = mmart) 
+ref$mmart = mmart
+#ensembl = useMart(biomart = "ENSEMBL_MART_ENSEMBL", dataset="mmusculus_gene_ensembl", host = "https://www.ensembl.org") #Alternative mart
+saveRDS(ref,"~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/Ref/Ref_Jax_biomart.240423.rds")
+
+```
+
+#Reference
+```{r}
+Ref <- readRDS("~/Library/CloudStorage/OneDrive-Personal/Documents_Onedrive/RStudioProject/scRNA/Ref/Ref_Jax_biomart.240423.rds")
+HGenes = Ref$hmart$hgnc_symbol %>% unique() %>% mixedsort()
+MGenes = Ref$mmart$mgi_symbol %>% unique() %>% mixedsort()
+```
+#GeneSet
+##fgsea
+```{r}
+fgsea_sets_H  <- msigdbr(species = "human", category = "H" ) %>% split(x = .$gene_symbol, f = .$gs_name)
+fgsea_sets_c2 <- msigdbr(species = "human", category = "C2" ) %>% split(x = .$gene_symbol, f = .$gs_name)
+fgsea_sets_c5 <- msigdbr(species = "human", category = "C5" ) %>% split(x = .$gene_symbol, f = .$gs_name)
+fgsea_sets = append(fgsea_sets_H, fgsea_sets_c2)
+```
+
+##Molecular
+```{r}
+GeneSet = list()
+GeneSet$Markers = list("Lineage" = c("PTPRC","CD3D","CSF1R","CSF3R","MS4A1","CD19","IGLC1","MKI67","COL6A2","KRT18","PECAM1","HDC"),
+                       "TNK" = c("CD3E","CD4","CD8A","TRDC","NCR1","KLRD1","KLRC1","NCAM1","FOXP3","MKI67","IGKC","ISG15","CSF3R") )
+
+GeneSet$DE = list()
+
+GeneSet$DE$ETC = list(
+  "Complex I" = find2(HGenes, "^NDUF"),
+  "Complex II" = find2(HGenes, "^SDH"),
+  "Complex III" = c(find2(HGenes, "^UQC"),find2(HGenes,"^CYC")),
+  "Complex IV" = find2(HGenes,"^COX"),
+  "Complex V" = find2(HGenes, "^ATP")
+)
+
+GeneSet$DE$ETC.Ref = list(
+  "Complex I" = fgsea_sets$WP_MITOCHONDRIAL_COMPLEX_I_ASSEMBLY_MODEL_OXPHOS_SYSTEM,
+  "Complex II" = fgsea_sets$WP_MITOCHONDRIAL_COMPLEX_II_ASSEMBLY,
+  "Complex III" = fgsea_sets$WP_MITOCHONDRIAL_COMPLEX_III_ASSEMBLY,
+  "Complex IV" = fgsea_sets$WP_MITOCHONDRIAL_COMPLEX_IV_ASSEMBLY,
+  "Complex V" = fgsea_sets_c5$GOCC_PROTON_TRANSPORTING_ATP_SYNTHASE_COMPLEX
+)
+GeneSet$DE$ETC.Ref2 = list(
+  "Complex I" = intersect(GeneSet$DE$ETC$`Complex I`, fgsea_sets$WP_MITOCHONDRIAL_COMPLEX_I_ASSEMBLY_MODEL_OXPHOS_SYSTEM),
+  "Complex II" = intersect(GeneSet$DE$ETC$`Complex II` ,fgsea_sets$WP_MITOCHONDRIAL_COMPLEX_II_ASSEMBLY),
+  "Complex III" = intersect(GeneSet$DE$ETC$`Complex III`, fgsea_sets$WP_MITOCHONDRIAL_COMPLEX_III_ASSEMBLY),
+  "Complex IV" = intersect(GeneSet$DE$ETC$`Complex IV`, fgsea_sets$WP_MITOCHONDRIAL_COMPLEX_IV_ASSEMBLY),
+  "Complex V" = intersect(GeneSet$DE$ETC$`Complex V`  ,fgsea_sets_c5$GOCC_PROTON_TRANSPORTING_ATP_SYNTHASE_COMPLEX)
+)
+
+GeneSet$DE$ETC.selected.set = list(
+  "Complex I" = c("NDUFA5","NDUFA6","NDUFA7","NDUFA8","NDUFB5","NDUFB6", "NDUFB8", "NDUFB9" ,"NDUFB10","NDUFB11","NDUFS5","NDUFV2" , "NDUFV3"),
+  "Complex II" = c("SDHAF1","SDHAF2"),
+  "Complex IV" = c("COX4I1","COX5A", "COX5B" , "COX6B1" ),
+  "Complex V" = c("ATP5F1C", "ATP5F1D", "ATP5F1EP2" ,"ATP5MC1","ATP5MC2" ,"ATP5PD","ATP5PF","ATP5MF","ATP5ME" ,"ATP5IF1", "ATP6V1F","ATP6V1G1" )
+)
+
+GeneSet$DE$ETC.selected = c("NDUFA5","NDUFA6","NDUFA7","NDUFA8","NDUFB5","NDUFB6", "NDUFB8", "NDUFB9" ,"NDUFB10","NDUFB11","NDUFS5","NDUFV2" , "NDUFV3" ,"COX4I1","COX5A", "COX5B" , "COX6B1", "ATP5F1C", "ATP5F1D", "ATP5F1EP2" ,"ATP5MC1","ATP5MC2" ,"ATP5PD","ATP5PF","ATP5MF","ATP5ME" ,"ATP5IF1", "ATP6V1F","ATP6V1G1" )
+
+GeneSet$DE$ETC.selected2 = c("NDUFA6","NDUFA7","NDUFB5","SDHAF1","SDHAF2","COX5A","COX5B","COX6A1","ATP5FA1","ATP5F1C","ATP5MF" )
+
+
+
+GeneSet$DE$MTGenes = list("MTGenes" = find2(HGenes, "^MT-" ))
+GeneSet$DE$MT.Translocase = list("TOMM" = find2(HGenes, "^TOMM"), "TIMM" = find2(HGenes, "^TIMM") )
+
+GeneSet$DE$Ribosome = list(
+  "RP large subunit" = intersect(fgsea_sets$KEGG_RIBOSOME, find2(HGenes, "^RPL")),
+  "RP small subunit" = intersect(fgsea_sets$KEGG_RIBOSOME, find2(HGenes, "^RPS"))
+)
+
+GeneSet$DE$RibosomeMito = find2(HGenes,"^MRP") 
+
+GeneSet$DE$ISG = list("ISG"= find2(HGenes,"ISG"),
+                      "IFI" = find2(HGenes,"IFI") )
+
+GeneSet$DE$Glycolysis = list("Glycolysis" = c("HK1","ENO1","LDHA","PGAM1","PFKP","PKM","TPI1") )
+GeneSet$DE$Glycolysis2 = list("Glycolysis" = mixedsort(unique(
+  unlist(c(GeneSet$DE$Glycolysis ,fgsea_sets$WP_AEROBIC_GLYCOLYSIS, fgsea_sets$MOOTHA_GLYCOLYSIS, fgsea_sets$REACTOME_GLYCOLYSIS ) ) 
+  ) )  )
+
+```
+
+###Combine
+```{r}
+GeneSet$DE$ETC.Ribosome = c(GeneSet$DE$ETC.Ref2,GeneSet$DE$Ribosome)
+GeneSet$DE$ETC.MT.Ribosome = c(GeneSet$DE$ETC.Ref2,
+                            GeneSet$DE$MTGenes,
+                            GeneSet$DE$Ribosome)
+GeneSet$DE$ETC.RP = list("Complex I" = GeneSet$DE$ETC.Ref2[["Complex I"]][c(1:6,18:23)],
+                          "Complex II" = GeneSet$DE$ETC.Ref2[["Complex II"]],
+                          "Complex III" = GeneSet$DE$ETC.Ref2[["Complex III"]],
+                          "Complex IV" = GeneSet$DE$ETC.Ref2[["Complex IV"]][2:11],
+                          "Complex V" = GeneSet$DE$ETC.Ref2[["Complex V"]][1:12],
+                          "RP large subunit" = GeneSet$DE$RPL[1:12],
+                           "RP small subunit" = GeneSet$DE$RPS[1:12] )
+GeneSet$DE$ETC.RP2 = list("Complex I" = GeneSet$DE$ETC.Ref2[["Complex I"]][1:6],
+                          "Complex II" = GeneSet$DE$ETC.Ref2[["Complex II"]][1:4],
+                          "Complex III" = GeneSet$DE$ETC.Ref2[["Complex III"]][1:6],
+                          "Complex IV" = GeneSet$DE$ETC.Ref2[["Complex IV"]][1:6],
+                          "Complex V" = GeneSet$DE$ETC.Ref2[["Complex V"]][1:6],
+                          "RP large subunit" = GeneSet$DE$Ribosome[["RP large subunit"]] [1:8],
+                           "RP small subunit" = GeneSet$DE$Ribosome[["RP small subunit"]] [1:8] )
+
+GeneSet$DE$ETC.RP.ISG = c(GeneSet$DE$ETC.Ref2,GeneSet$DE$Ribosome,GeneSet$DE$ISG )
+
+GeneSet$DE$Energy.RP = c(GeneSet$DE$MTGenes,GeneSet$DE$ETC, GeneSet$DE$Glycolysis, GeneSet$DE$Ribosome)
+```
+
+
+##Published work annotation
+```{r}
+GeneSet$DE$LLC = c("IL1B","IL1A","HIF1A","PTGS1","PTGS2","VEGFA")
+
+GeneSet$DE$Common <- c("FOS","FOSB","FOSL2","JUN","JUNB","JUND","ATF3","EGR1","ETS1","NR3C1","ATF7IP","ACTB","ACTG1","ACTR2","CCL3","CCL4","CCL3L1","CCL4L2","CCL5","CXCL13","CXCR4","XCL1","XCL2","HMGA1","HMGB1","HMGB2","HMGN1","HMGN3","NR4A1","NR4A2","NR4A3","NFKBIZ","NFKB1","PSMA1","PSMA2","PSMA3","PSMA4","PSMA5","PSMA6","PSMA7","PSMB1","PSMB2","PSMB3","PSMB4","PSMB5","PSMB6","PSMB7","PSMB8","PSMB9","PSMC1","PSMC2","PSMC3", "PSMD7","PSMD8","PSMD9","PSME1","PSME2","PSME3" )
+GeneSet$DE$Chemokine = c(HGenes[grep("^CCL",HGenes)],
+                                    HGenes[grep("^CXC",HGenes)],
+                                    HGenes[grep("^XCL",HGenes)]
+                                    ) %>% sort()
+
+GeneSet$DE$CD8.Overview = list(
+  "Activation" = c("CD44","CD69","FOS","FOSB","JUN","JUNB","JUND","NFATC1","IFNG"),
+  "TCR" = c("CD3D","CD3G","CD27","CD28"),
+  "NFKB" = c("NFKB1","NFKBIZ","NR4A1","NR4A2","NR4A3","RELB"), 
+  "IL2-signaling" = c("IL2RA","IL2RB","IL2RG","STAT5A","STAT5B"),
+  "ETC" = c(GeneSet$DE$MTC1[1:3],GeneSet$DE$MTC23[1:3],GeneSet$DE$MTC4[1:3],GeneSet$DE$MTC5[49:52]), 
+  "Ribosome" = GeneSet$DE$Ribosome[1:6], 
+  "Proteosome" = GeneSet$DE$Proteosome[11:15],
+  "-" = c("IFNG","TGFB1","HLA-DRA","HLA-DRB1","DNMT1","JARID1B","CTNNB1") )
+
+GeneSet$DE$CD8.Overview1 = list(
+  "Activation" = c("CD44","CD69","FOS","FOSB","JUN","JUNB","JUND","NFATC1","IFNG"),
+  "TCR" = c("CD3D","CD3G","CD27","CD28"),
+  "NFKB" = c("NFKB1","NFKBIZ","NR4A1","NR4A2","NR4A3","RELB"), 
+  "IL2-signaling" = c("IL2RA","IL2RB","IL2RG","STAT5A","STAT5B"))
+
+GeneSet$DE$CD8.Overview2 = list(
+  "Activation" = c("CD44","CD69","FOS","FOSB","JUN","JUNB","JUND","NFATC1","IFNG"),
+  "NFKB" = c("NFKB1","NFKBIZ","NR4A1","NR4A2","NR4A3","RELB"), 
+  "TCR" = c("CD3D","CD3G","CD27","CD28"),
+  "IL2-signaling" = c("IL2RA","IL2RB","IL2RG","STAT5A","STAT5B"),
+  "OXPHOS" = GeneSet$DE$ETC.RP,
+  "Ribosome" = c("RPS2","RPS3","RPS11","RPL3","RPL11","RPL19") )
+
+GeneSet$DE$CD8.Overview3 = list(
+  "Activation" = c("CD44","CD69","FOS","FOSB","JUN","JUNB","JUND","NFATC1","IFNG"),
+  "NFKB" = c("NFKB1","NFKBIZ","NR4A1","NR4A2","NR4A3","RELB"), 
+  "TCR" = c("CD3D","CD3G","CD27","CD28"),
+  "IL2-signaling" = c("IL2RA","IL2RB","IL2RG","STAT5A","STAT5B"),
+  "OXPHOS" = GeneSet$DE$ETC.selected2,
+  "Ribosome" = c("RPS2","RPS3","RPS11","RPL3","RPL11","RPL19") )
+
+GeneSet$DE$CD8.Overview4 = list(
+                          "Activation" = c("CD44","CD69","FOS","FOSB","JUN","JUNB","JUND","NFATC1","IFNG"),
+                          "NFKB" = c("NFKB1","NFKBIZ","NR4A1","NR4A2","NR4A3","RELB"), 
+                          "TCR" = c("CD3D","CD3G","CD27","CD28"),
+                          "IL2-signaling" = c("IL2RA","IL2RB","IL2RG","STAT5A","STAT5B"),
+                          "Complex I" = GeneSet$DE$ETC.Ref2[["Complex I"]][c(1:6)],
+                          "Complex II" = GeneSet$DE$ETC.Ref2[["Complex II"]],
+                          "Complex III" = GeneSet$DE$ETC.Ref2[["Complex III"]],
+                          "Complex IV" = GeneSet$DE$ETC.Ref2[["Complex IV"]][2:7],
+                          "Complex V" = GeneSet$DE$ETC.Ref2[["Complex V"]][1:6],
+                          "RP large subunit" = GeneSet$DE$RPL[1:6],
+                          "RP small subunit" = GeneSet$DE$RPS[1:6] )
+
+GeneSet$DE$CD4.Beyer = list(
+  "TCR" = c("CD3D","CD3G","CD27","CD28"),
+  "IL2-signaling" = c("IL2","IL2RA","IL2RB","IL2RG","STAT5A","STAT5B"),
+  "PGC" = c("PPARG" ,"PPARGC1A","PPARGC1B") )
+
+GeneSet$DE$TIM.Overview = list(
+  "AP-1" = c("FOS","FOSB","FOSL1","FOSL2","JUN","JUNB","JUND"),
+  "NFKB" = c("NFKB1","NKFB2","NFKBIZ","NR4A1","NR4A2","NR4A3","RELB","RELA"), 
+  "ETC" = c(GeneSet$DE$MTC1[1:3],GeneSet$DE$MTC23[1:3],"UQCC2","UQCC3",GeneSet$DE$MTC4[13:16],GeneSet$DE$MTC5[49:52]), 
+  "Ribosome" = GeneSet$DE$Ribosome[3:8], 
+  "Proteosome" = GeneSet$DE$Proteosome[11:15])
+
+GeneSet$DE$TIM.Overview1 = list(
+  "AP-1" = c("FOS","FOSB","FOSL1","FOSL2","JUN","JUNB","JUND"),
+  "NFKB" = c("NFKB1","NKFB2","NFKBIZ","NR4A1","NR4A2","NR4A3","RELB","RELA"))
+
+GeneSet$DE$TIM.Overview2 = list(
+  "AP-1" = c("FOS","FOSB","FOSL1","FOSL2","JUN","JUNB","JUND"),
+  "NFKB" = c("NFKB1","NKFB2","NFKBIZ","NR4A1","NR4A2","NR4A3","RELB","RELA"), 
+  "ETC" = GeneSet$DE$ETC.selected2,
+  "Ribosome" = c("RPS2","RPS3","RPS11","RPL3","RPL11","RPL19") )
+
+
+
+GeneSet$DE$Bonavita = list(
+  "Promoting" = c("PTGS2","IL6","CXCL1","CXCL2","CSF3","IL1A","IL1B","CCL2","VEGFA"),
+  "Inhibiting" = c("IL12A","IL12B","CXCL9","CXCL10","CCL5","STAT1")
+)
+
+GeneSet$DE$PGE2 = c("PTGS1","PTGS2","PTGER2","PTGER4","PTGES","PTGES2","PTGES3")
+```

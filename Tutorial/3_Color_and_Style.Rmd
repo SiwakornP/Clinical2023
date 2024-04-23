@@ -1,0 +1,75 @@
+---
+title: "Color setting"
+output: html_document
+date: "2024-04-08"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Color
+```{r}
+col_orange = c("grey","yellow","orange","red")
+col_orange2 = c("grey","#fecd1a","#f9c80e","orange","red","firebrick3")
+col_orange3 = c("grey85","#fecd1a","#FFB700","#FAA307","#F48C06","#E85D04","#DC2F02","#D00000")
+col_orange4 = c("grey","#fecd1a","#FFB700","#FAA307","#F48C06","#E85D04")
+
+col_ig = c("grey","#120078","#9d0191","#fd3a69","#fecd1a")
+col_viridis <- c("grey",c(viridis::viridis(6))[1:5],"#fecd1a" )
+col_viridis2 <- c(c(viridis::viridis(6))[1:5],"#fecd1a" )
+col_pastel_rainbow = c("#01295f","#437f97","#849324","#ffb30f","#fd151b","firebrick")
+col_BlueRed1 = c("#01295f","#1c51be","#52b893","#9c944c","#f5d62e","orange","#f86624","firebrick")
+col_BlueRed2 = c("#01295f","#1c51be","#52b893","#f5d62e","#f86624","firebrick")
+Col.HiLow.9Shades = c("#28198a","#163285","#3d569f","#8b99c2","#ffffff","#fce487","#f9c80e","#f86624","#ea3546")
+Col.HiLow.7Shades = c("#28198a","#163285","#3d569f","#ffffff","#f9c80e","#f86624","#ea3546")
+Col.HiLow.7Shades2 = c("#28198a","#28198a","#163285","#3d569f","#ffffff","#f9c80e","#f86624","#ea3546","#ea3546") #0,0.5,1,2,3 values = c(0,0.17,0.33,0.42,0.5,0.58,0.67,0.83,1)
+Col.HiLow.Up = c("#ffffff","#fce487","#f9c80e","#f86624")#,"#ea3546")
+Col.HiLow.Down = c("#28198a","#163285","#3d569f","#8b99c2","#ffffff")
+Col.BW = c("black","grey30","grey50","grey70","grey90")
+
+Col.HiLow.BR = list("Shades1" = c("#28198a","#163285","#3d569f","#8b99c2","#ffffff","#fce487","#f9c80e","#f86624","#ea3546"),
+                         "Shades2" = c("#05285F","#174185","#345995","#5171a4","#8ba0c2","#ffffff","#FFEDAB","#FFDA56","#f86624","#ea3546","#B60E1F"), #0,0.5,1,2,3,6
+                         "Shades3" = c("#05285F","#174185","#345995","#5171a4","#8ba0c2","#ffffff","#FFEDAB","#FFDA56","#f86624","#ea3546","#ea3546"), #0,0.5,1,2,3,6
+                         "Shades4" = c("#05285F","#05285F","#174185","#5171a4","#8ba0c2","#ffffff","#FFEDAB","#FFDA56","#f86624","#ea3546","#ea3546"), #0,0.5,1,2,3,6
+                         "Shades5" = c("#05285F","#05285F","#05285F","#174185","#8ba0c2","#ffffff","#FFEDAB","#FFDA56","#f86624","#f86624","#f86624"), #0,0.5,1,2,3,6
+                         "Shades6" = c("#05285F","#05285F","#05285F","#345995","#6E89B3","#ffffff","#FFEDAB","#FFDA56","#f86624","#f86624","#f86624"), #0,0.5,1,2,3,6
+                         "Shades7" = c("#345995","#345995","#6E89B3","#ffffff","#FFDA56","#FF8F00","#FF8F00"), #0,2,3,6
+                         "Shades8" = c("#05285F","#05285F","#345995","#ffffff","#FFDA56","#FF8F00","#FF8F00"), #0,2,3,6
+                         "Shades9" = c("#05285F","#05285F","#345995","#ffffff","#FFDA56","#FF8F00","#f86624") #0,2,3,6
+                         )
+Col.HiLow.BR.Values = list("Shades1" = c(0, 0.45 , 0.5 ,  5.5 , 1 )  ,
+                           "Shades2" = c(0, 0.25,0.33,0.42,0.46 , 0.5 ,0.54, 0.58,0.67,0.75, 1 ) ,
+                           "Shades3" = c(0, 0.25,0.33,0.42,0.46 , 0.5 ,0.54, 0.58,0.67,0.75, 1 ) ,
+                           "Shades4" = c(0, 0.25,0.33,0.42,0.46 , 0.5 ,0.54, 0.58,0.67,0.75, 1 ) ,
+                           "Shades5" = c(0, 0.25,0.33,0.42,0.46 , 0.5 ,0.54, 0.58,0.67,0.75, 1 ) ,
+                           "Shades6" = c(0, 0.25,0.33,0.42,0.46 , 0.5 ,0.54, 0.58,0.67,0.75, 1 ) ,
+                           "Shades7" = c(0, 0.25,0.33, 0.5 ,0.67,0.75, 1 ),
+                           "Shades8" = c(0, 0.25,0.33, 0.5 ,0.67,0.75, 1 ),
+                           "Shades9" = c(0, 0.25,0.33, 0.5 ,0.67,0.75, 1 )
+                           )
+```
+
+#Scale color
+```{r}
+scale_orange = scale_color_gradientn(colours = c("grey","yellow","orange","red"), values = c(0,0.1,0.5,1))
+scale_ig = scale_color_gradientn(colours = c("grey","#120078","#9d0191","#fd3a69","#fecd1a"), values = c(0,0.1,0.3,0.6,1))
+scale_ig2 = scale_color_gradientn(colours = c("#120078","#9d0191","#fd3a69","#fecd1a"))
+scale_viridis = scale_color_gradientn(colours = col_viridis )
+scale_PRainbow = scale_color_gradientn(colours = col_pastel_rainbow)
+scale_BY = scale_color_gradientn(colours = c("grey","#01295f","#1c51be","#1893c4","#52b893","#9c944c","#e5cd3b","#fecd1a","orange"), values = c(0,0.05,0.1,0.3,0.4,0.5,0.6,0.8,1) )
+scale_BY2 = scale_color_manual(values=  c("grey","#01295f","#1c51be","#1893c4","#52b893","#9c944c","#e5cd3b","#fecd1a","orange","#f86624","firebrick") )
+```
+
+#Style
+```{r}
+Dot_axis90A = theme(axis.text.x =  element_text(size = 15, angle = 90, hjust = 1, vjust = 0.3,color = "black",face ="italic"), axis.text.y = element_text(size = 15,color = "black")) 
+Dot_axis90B = theme(axis.text.x =  element_text(size = 15, angle = 90, hjust = 1, vjust = 0.3,color = "black"), axis.text.y = element_text(size = 15,color = "black")) 
+
+Dot_scale = scale_size(range = c(1.5,8),name = "Percent Expression") 
+Dot_scale2 = scale_size(range = c(0.2,3),name = "Percent Expression") 
+
+FP_head = theme(plot.title = element_text(size = 20, face= "bold", colour = "firebrick") )
+FP_head2 = theme(plot.title = element_text(size = 30, face= "bold", colour = "firebrick") )
+```
+
