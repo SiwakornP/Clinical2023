@@ -7,6 +7,9 @@ This is a tutorial to generate PTGER2 and PTGER4 expression group in and scRNA-s
 
 **Tutorial section**
 Immune cell classification guide:
+
 PTGER2 Grouping : 
+
 PTGER4 Grouping : 
+
 DE analysis:
