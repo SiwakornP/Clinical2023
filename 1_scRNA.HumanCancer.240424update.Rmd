@@ -1,0 +1,1143 @@
+---
+title: "scBOC.Revision.Submitted.240422"
+output: html_document
+date: "2024-04-22"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+#Library-1
+```{r}
+library(Seurat)
+library(tidyverse)
+library(gtools)
+library(harmony)
+library(scales)
+library(fgsea)
+library(msigdbr)
+library(biomaRt)
+library("org.Mm.eg.db")
+library(extrafont)
+```
+#Library-2
+```{r}
+library(limma)
+library(ggrepel)
+library(ggthemes)
+library(DESeq2)
+```
+
+
+#Instant command
+```{r}
+Clustering1 <- function(tmp,dim=30,res=0.3,spread =1, dist = 1,group = "ID" ){
+      DefaultAssay(tmp) = "RNA"
+      tmp <- NormalizeData(tmp) %>% FindVariableFeatures() %>% ScaleData() %>% RunPCA(verbose = FALSE)
+      tmp <- RunHarmony(tmp, group.by.vars = group)
+      tmp <- RunUMAP(tmp, reduction = "harmony", dims = 1:dim, min.dist = dist, spread = spread )
+      tmp <- FindNeighbors(tmp, reduction = "harmony", dims = 1:dim) %>% FindClusters(resolution = res)
+      return(tmp)
+}
+
+PTGER4.Group = function(Obj1, Identity = "Identity.Celltype", Batch = "Batch.scRNA"){
+      df = data.frame()
+      Cluster = unique(Obj1[[]][,Identity]) %>% as.character()
+      Idents(Obj1) = Identity
+      for(i in Cluster){
+            Obj2 = subset(Obj1, idents = i)
+            AllBatch = unique(as.character(Obj2[[]][,Batch] ))
+            for(j in AllBatch ){
+                  Idents(Obj2) = Batch
+                  Obj3 = subset(Obj2, idents = j)
+                  tmp = FetchData(Obj3, vars = "PTGER4",slot="data") %>% arrange(desc(PTGER4))
+                  tmpA = filter(tmp,PTGER4 == 0)
+                  tmp = filter(tmp,PTGER4 != 0)
+                  if(nrow(tmpA) > 0 ) {
+                        tmpA$PTGER4.Group = "Undetected"
+                        } 
+                  if(nrow(tmp) > 0 ) {
+                        tmp$PTGER4.Group = "Low"
+                        tmp$PTGER4.Group[1:round(nrow(tmp)/3)] = "High" 
+                        tmp$PTGER4.Group[(round(nrow(tmp)/3)+1):(round(nrow(tmp)/3*2))] = "Intermediate"
+                        }
+                  tmp = rbind(tmp,tmpA)
+                  if(nrow(tmp) > 0 ) {
+                        tmp$Cluster = i
+                        tmp$Batch = j
+                        }
+                  print(paste0(i," ",j, " ... ", (nrow(tmp) == ncol(Obj3)  ) ) )
+                  df = rbind(df,as_tibble(tmp,rownames="CB"))
+            }
+      }
+      print(paste0("Validation : ", nrow(df) == nrow(Obj1[[]]) ) )
+      tmp2 = df$PTGER4.Group
+      names(tmp2) = df$CB
+      return(tmp2)
+}
+
+PTGER2.Group = function(Obj1, Identity = "Identity.Celltype", Batch = "Batch.scRNA"){
+      df = data.frame()
+      Cluster = unique(Obj1[[]][,Identity]) %>% as.character()
+      Idents(Obj1) = Identity
+      for(i in Cluster){
+            Obj2 = subset(Obj1, idents = i)
+            AllBatch = unique(as.character(Obj2[[]][,Batch] ))
+            for(j in AllBatch ){
+                  Idents(Obj2) = Batch
+                  Obj3 = subset(Obj2, idents = j)
+                  tmp = FetchData(Obj3, vars = "PTGER2",slot="data") %>% arrange(desc(PTGER2))
+                  tmpA = filter(tmp,PTGER2 == 0)
+                  tmp = filter(tmp,PTGER2 != 0)
+                  if(nrow(tmpA) > 0 ) {
+                        tmpA$PTGER2.Group = "Undetected"
+                        } 
+                  if(nrow(tmp) > 0 ) {
+                        tmp$PTGER2.Group = "Low"
+                        tmp$PTGER2.Group[1:round(nrow(tmp)/2)] = "High" 
+                        }
+                  tmp = rbind(tmp,tmpA)
+                  if(nrow(tmp) > 0 ) {
+                        tmp$Cluster = i
+                        tmp$Batch = j
+                        }
+                  print(paste0(i," ",j, " ... ", (nrow(tmp) == ncol(Obj3)  ) ) )
+                  df = rbind(df,as_tibble(tmp,rownames="CB"))
+            }
+      }
+      print(paste0("Validation : ", nrow(df) == nrow(Obj1[[]]) ) )
+      tmp2 = df$PTGER2.Group
+      names(tmp2) = df$CB
+      return(tmp2)
+}
+
+
+
+FullDE <- function(Obj,Group = "PTGER4.Group.Celltype2", Batch = "ID",A = "High", B = "Low"){
+      DE = list()
+      Idents(Obj) = Batch
+      for(i in unique(Obj[[]][,Batch]) ){
+            tmp = subset(Obj, idents = i)
+            print(paste0(i," : ", ncol(tmp), " Cells"))
+            tryCatch({
+                  Idents(tmp) = Group
+                  print(summary(Idents(tmp)))
+                  DE[[i]] = FindMarkers(tmp,ident.1 = A, ident.2 = B, logfc.threshold = 0,min.pct =0.01 )
+            }, error = function(e){print(e)})
+      }
+      #Sum table
+      df = data.frame()
+      for(i in names(DE) ){
+            tmp = DE[[i]] %>% as_tibble(rownames = "Genes") %>% dplyr::select(Genes, avg_log2FC)
+            tmp$Datasets = i
+            df = rbind(df,tmp)
+      }
+      df = spread(df, Genes, avg_log2FC) %>% as.data.frame()
+      rownames(df) = df$Datasets
+      df = dplyr::select(df,-Datasets)
+      df2 = matrix(nrow = ncol(df),ncol=0) %>% data.frame()
+      rownames(df2) = colnames(df)
+      df2$Upregulation = "NA"
+      df2$Downregulation = "NA"
+      for(i in colnames(df)){
+            tmp = df[,i] > 0 
+            df2[i,"Upregulation"] = sum(tmp)
+            tmp = df[,i] < 0 
+            df2[i,"Downregulation"] = sum(tmp)
+      }
+      df2$Upregulation = as.numeric(df2$Upregulation)
+      df2$Downregulation = as.numeric(df2$Downregulation)
+      DE[["FoldChange.Table"]] = df
+      DE[["FoldChange.Sum"]] = df2
+      return(DE)
+}
+FullDE2 <- function(Obj,Group = "PTGER4.Group.Celltype2", Batch = "Batch.scRNA",A = "High", B = "Low"){
+      DE = list()
+      Idents(Obj) = Batch
+      for(i in unique(Obj[[]][,Batch]) ){
+            tmp = subset(Obj, idents = i)
+            print(paste0(i," : ", ncol(tmp), " Cells"))
+            tryCatch({
+                  Idents(tmp) = Group
+                  print(summary(Idents(tmp)))
+                  DE[[i]] = FindMarkers(tmp,ident.1 = A, ident.2 = B, logfc.threshold = 0,min.pct =0.01 )
+            }, error = function(e){print(e)})
+      }
+      return(DE)
+}
+
+RevIden <- function(x){
+      factor(x, levels = rev(levels(x)))
+}
+
+
+
+GeneGroup <- function(df,GeneList ){
+  tmp = data.frame(matrix(ncol = (ncol(df)+1), nrow = 0))
+  colnames(tmp) = c(colnames(df),"Set")
+  for(i in names(GeneList)){
+      tmp1 = filter(df, Genes %in% GeneList[[i]] ) %>% filter(!Genes %in% tmp[,"Genes"])
+      tmp1$Set = i
+      tmp = rbind(tmp,tmp1)
+  }
+  tmp$Set = factor(tmp$Set, levels = names(GeneList))
+  tmp$Genes = factor(tmp$Genes, levels = unique(unlist(GeneList)) )
+  return(tmp)
+}
+
+pCat = function(df, pval.use = "p_val_adj"){
+  df$pval_cat = ">0.05"
+  df$pval_cat[(df[,pval.use] < 0.05)] = "<0.05"
+  df$pval_cat[(df[,pval.use] < 0.01)] = "<0.01"
+  df$pval_cat[(df[,pval.use] < 0.001)] = "<0.001"
+  df$pval_cat = factor(df$pval_cat, levels = c(">0.05","<0.05","<0.01","<0.001"))
+  return(df)
+}
+
+
+
+```
+#-----------------------
+#Integration
+```{r}
+Batch.scRNA = c("scBRCA1","scBRCA3","scBRCA4","scBRCA5","scBRCA6", 
+                paste0("scOVCA",1:5),
+                paste0("scCRC",1:5))
+Batch.original = c(paste0("BRCA",c(10,12,17,20,22)),
+                   paste0("HGSOC",c(4,5,"5CMT",6,16)),
+                   paste0("CRC",c(1,5,7,8,9)) )
+ID = paste0(Batch.scRNA,"_CD45")
+Condition = rep(c("CD45"),15)
+Cancer = c(rep("BRCA",5),rep("OVCA",5), rep("CRC",5) )
+Histo = c("Luminal","Luminal","TNBC","TNBC","TNBC",
+          "HGSOC","HGSOC","HGSOC","HGSOC","HGSOC",
+          "CRC","CRC","CRC","CRC","CRC")
+
+CellRangerDir = paste0("//home/siwakorn/Human/Counts/",ID, "/filtered_feature_bc_matrix")
+
+
+RNA = list()
+for(i in 1:length(CellRangerDir)){
+      tmp = Read10X(data.dir = CellRangerDir[i]  )
+      RNA[[i]] <- CreateSeuratObject(counts = tmp, min.cells = 3, min.features = 0)
+      RNA[[i]][["percent.mt"]] <- PercentageFeatureSet(RNA[[i]], pattern = "^MT-")
+      RNA[[i]]$CB.original = colnames(RNA[[i]])
+      RNA[[i]]$Cancer = as.character(Cancer[i])
+      RNA[[i]]$Histo = as.character(Histo[i])
+      RNA[[i]]$Batch.original <- as.character(Batch.original[i])
+      RNA[[i]]$Batch.scRNA <- as.character(Batch.scRNA[i])
+      RNA[[i]]$Condition <- as.character(Condition[i])
+      RNA[[i]]$ID = paste0(as.character(RNA[[i]]$Batch.scRNA),"_",as.character(RNA[[i]]$Condition))
+      RNA[[i]]$CB.new = paste0(RNA[[i]]$ID,":", colnames(RNA[[i]]) )
+      RNA[[i]]$CB.new = gsub("-1","x",RNA[[i]]$CB.new)
+      RNA[[i]] <- RenameCells(RNA[[i]], new.names = RNA[[i]]$CB.new )
+}
+
+print("part1")
+BOC = merge(x = RNA[[1]],
+            y = RNA[2:length(RNA)],
+            merge.data = TRUE)
+RNA = NULL
+
+DefaultAssay(BOC) = "RNA"
+print("part2")
+
+BOC = subset(BOC, percent.mt < 10)
+BOC = Clustering1(BOC, group = "ID",spread = 1, dist = 1, res = 0.3)
+BOC = JoinLayers(BOC) 
+```
+
+
+#Annotation
+```{r}
+BOC = RenameIdents(BOC, 
+                   '0' = "TNK",
+                   '3' = "TNK",
+                   '4' = "TNK",
+                   '6' = "TNK",
+                   '9' = "TNK",
+                   '14' = "TNK",
+                   '17' = "TNK",
+                   '18' = "TNK",
+                   '2' = "Myeloid",
+                   '8' = "Myeloid",
+                   '15' = "Myeloid",
+                   '16' = "Myeloid",
+                   '5' = "B_cell",
+                   '1' = "B_cell",
+                   '7' = "Dividing",
+                   '12' = "Dividing",
+                   '13' = "Dividing",
+                   '10' = "Minor",
+                   '11' = "Minor"
+                   )
+BOC$Identity.Lineage = Idents(BOC)
+
+#-----------------------------------------------------------------------------------------
+##TNK
+TNK = subset(BOC,idents = "TNK")
+TNK = Clustering1(TNK)
+TNK = RenameIdents(TNK,
+                   '5' = "NK",
+                   '6' = "NK",
+                   '0' = "T_CD8",
+                   '4' = "T_CD8",
+                   '7' = "T_CD8",
+                   '1' = "T_CD4",
+                   '2' = "T_CD4",
+                   '3' = "Treg",
+                   '8' = "LQ",
+                   '9' = "LQ")
+TNK$Identity.Celltype = Idents(TNK)
+
+NK = subset(TNK, idents = "NK")
+NK = Clustering1(NK)
+NK = RenameIdents(NK,
+                   '0' = "T_CD8",
+                   '1' = "NK",
+                   '2' = "T_CD8",
+                   '3' = "NK",
+                   '4' = "NK",
+                   '5' = "NK",
+                   '6' = "NK",
+                   '7' = "NK",
+                   '8' = "NK",
+                   '9' = "NK")
+NK$Identity.Celltype = Idents(NK)
+
+CD8 = subset(TNK, idents = "T_CD8")
+CD8 = Clustering1(CD8)
+CD8 = RenameIdents(CD8,
+                   '0' = "T_CD8",
+                   '1' = "T_CD8",
+                   '3' = "T_CD8",
+                   '6' = "T_CD8")
+CD8$Identity.Celltype = Idents(CD8)
+C2 = subset(CD8, idents = 2)
+C2 = Clustering1(C2)
+C2 = RenameIdents(C2,
+                  '0' = "T_CD8",
+                  '2' = "T_CD8",
+                  '1' = "T_CD4",
+                  '4' = "T_CD4",
+                  '3' = "LQ",
+                  '5' = "LQ")
+C2$Identity.Celltype = Idents(C2)
+
+C4 = subset(CD8, idents = 4)
+C4 = Clustering1(C4,res =1)
+C4 = RenameIdents(C4,
+                   '0' = "T_CD4",
+                   '1' = "T_CD8",
+                   '2' = "T_CD8",
+                   '3' = "T_CD4",
+                   '4' = "T_CD4",
+                   '5' = "T_CD8",
+                   '6' = "T_CD8",
+                   '7' = "T_CD8",
+                   '8' = "T_CD8",
+                   '9' = "T_CD4",
+                   '10' = "T_CD4"
+                  )
+C4$Identity.Celltype = Idents(C4)
+
+C5 = subset(CD8, idents = 5)
+C5 = Clustering1(C5)
+C5 = RenameIdents(C5, 
+                  '0' = "T_CD4",
+                  '1' = "T_CD8",
+                  '2' = "T_CD4",
+                  '3' = "LQ",
+                  '4' = "T_CD4")
+C5$Identity.Celltype = Idents(C5)
+
+tmp1 = CD8[[]] %>% dplyr::select(Identity.Celltype) %>% filter(Identity.Celltype == "T_CD8")
+tmp2 = C2[[]] %>% dplyr::select(Identity.Celltype) 
+tmp3 = C4[[]] %>% dplyr::select(Identity.Celltype) 
+tmp4 = C5[[]] %>% dplyr::select(Identity.Celltype) 
+
+tmp = rbind(tmp1,tmp2,tmp3,tmp4)
+tmp1 = tmp$Identity.Celltype
+names(tmp1) = rownames(tmp)
+CD8 = AddMetaData(CD8,tmp1, "Identity.Celltype")
+
+CD4 = subset(TNK, idents = "T_CD4")
+CD4 = Clustering1(CD4)
+CD4 = RenameIdents(CD4,
+                   '0' = "T_CD4",
+                   '1' = "T_CD4",
+                   '2' = "T_CD4",
+                   '3' = "T_CD4",
+                   '4' = "T_CD8",
+                   '5' = "T_CD4",
+                   '6' = "T_CD8"
+                   )
+CD4$Identity.Celltype = Idents(CD4)
+
+Treg= subset(TNK, idents = "Treg")
+Treg = Clustering1(Treg)
+Treg = RenameIdents(Treg,
+                    '3' = "T_CD8",
+                    '0' = "T_CD4_FOXP3",
+                    '1' = "T_CD4_FOXP3",
+                    '2' = "T_CD4_FOXP3",
+                    '4' = "T_CD4_FOXP3",
+                    '5' = "T_CD4_FOXP3",
+                    '6' = "T_CD4_FOXP3")
+Treg$Identity.Celltype = Idents(Treg)
+
+
+tmp1 = TNK[[]] %>% dplyr::select(Identity.Celltype) %>% filter(Identity.Celltype == "LQ")
+tmp2 = NK[[]] %>% dplyr::select(Identity.Celltype) 
+tmp3 = CD8[[]] %>% dplyr::select(Identity.Celltype) 
+tmp4 = CD4[[]] %>% dplyr::select(Identity.Celltype) 
+tmp5 = Treg[[]] %>% dplyr::select(Identity.Celltype) 
+
+tmp = rbind(tmp1,tmp2,tmp3,tmp4,tmp5)
+tmp1 = tmp$Identity.Celltype
+names(tmp1) = rownames(tmp)
+TNK = AddMetaData(TNK,tmp1, "Identity.Celltype")
+Idents(TNK) = TNK$Identity.Celltype
+DimPlot(TNK)
+#-----------------------------------------------------------------------------------------
+##Myeloid
+M = subset(BOC, idents = "Myeloid")
+M = Clustering1(M)
+DimPlot(M,label = T)
+Idents(M) = M$seurat_clusters
+M = RenameIdents(M,
+                 '0' = "TIM",
+                 '2' = "TIM",
+                 '3' = "TIM",
+                 '6' = "TIM",
+                 '8' = "TIM",
+                 '11' = "TIM",
+                 '5' = "TIM_Dividing",
+                 '1' = "TAN-PMN",
+                 '4' = "cDC2",
+                 '10' = "cDC1",
+                 '9' = "mregDC",
+                 '7' = "pDC"
+                 )
+M$Identity.Celltype = Idents(M)
+TIM = subset(M, idents = "TIM")
+TIM = Clustering1(TIM)
+TIM = RenameIdents(TIM,
+                   '0' = "TIM_VCAN",
+                   '1' = "TIM_C1QA",
+                   '2' = "C2",
+                   '3' = "TIM_VCAN",
+                   '4' = "TIM_C1QA",
+                   '5' = "Minor",
+                   '6' = "Minor",
+                   '7' = "Minor",
+                   '8' = "Minor")
+TIM$Identity.Celltype = Idents(TIM)
+
+C2 = subset(TIM, idents = "C2")
+C2 = Clustering1(C2)
+C2 = RenameIdents(C2, 
+                  '1' = "TIM_VCAN",
+                  '2' = "TIM_C1QA",
+                  '3' = "LQ",
+                  '5' = "TIM_C1QA",
+                  '6' = "TIM_C1QA",
+                  '0' = "LQ",
+                  '4' = "LQ",
+                  '7' = "LQ")
+C2$Identity.Celltype = Idents(C2)
+
+C5 = subset(M,idents = "TIM_Dividing")
+C5 = Clustering1(C5)
+
+tmp1 = M[[]] %>% dplyr::select(Identity.Celltype) %>% filter(!Identity.Celltype == "TIM")
+tmp2 = TIM[[]]  %>% dplyr::select(Identity.Celltype) %>% filter(!Identity.Celltype == "C2")
+tmp3 = C2[[]]  %>% dplyr::select(Identity.Celltype)
+tmp = rbind(tmp1,tmp2,tmp3)
+tmp1 = tmp$Identity.Celltype
+names(tmp1) = rownames(tmp)
+M = AddMetaData(M, tmp1, "Identity.Celltype")
+#-----------------------------------------------------------------------------------------
+##Div
+Div = subset(BOC, idents = "Dividing")
+Div = Clustering1(Div)
+Div$seurat_clusters = Idents(Div)
+Div = RenameIdents(Div,
+                   '0' = "T_CD8_Dividing",
+                   '1' = "T_CD4_Dividing",
+                   '2' = "T_CD4_FOXP3_Dividing",
+                   '5' = "T_GD_Dividing",
+                   '2' = "B_cell_Dividing",
+                   '3' = "Plasma_cell_Dividing",
+                   '7' = "Plasma_cell_Dividing",
+                   '6' = "LQ")
+
+Idents(Div) = Div$seurat_clusters
+Div = RenameIdents(Div,
+                   '0' = "T_CD8",
+                   '1' = "T_CD4",
+                   '4' = "T_CD4_FOXP3",
+                   '5' = "NK",
+                   '2' = "B_cell",
+                   '3' = "B_cell",
+                   '7' = "B_cell",
+                   '6' = "LQ")
+Div$Identity.Celltype = Idents(Div)
+DimPlot(Div,label=T)
+
+
+#-----------------------------------------------------------------------------------------
+#Embed
+BOC$Identity.Celltype = BOC$Identity.Lineage
+tmp1 = BOC[[]] %>% dplyr::select(Identity.Celltype) %>% filter(Identity.Celltype %in% c("B_cell","Minor") )
+tmp2 = TNK[[]] %>% dplyr::select(Identity.Celltype) 
+tmp3 = M[[]] %>% dplyr::select(Identity.Celltype) 
+tmp4 = Div[[]] %>% dplyr::select(Identity.Celltype) 
+tmp = rbind(tmp1,tmp2,tmp3,tmp4)
+tmp1 = tmp$Identity.Celltype
+names(tmp1)= rownames(tmp)
+
+BOC = AddMetaData(BOC, tmp1, "Identity.Celltype")
+write.csv(sort(unique(BOC$Identity.Celltype)), "BOC.Identity.Celltype.230406.csv")
+tmp =read.csv("BOC.Identity.Celltype.230406.modified.csv")$x
+BOC$Identity.Celltype = factor(BOC$Identity.Celltype, levels= tmp)
+BOC$Identity.Celltype1 = BOC$Identity.Celltype
+Idents(BOC) = BOC$Identity.Celltype
+```
+
+##Celltype2, Subtype1, Subtype2
+```{r}
+#NK
+NK = subset(BOC, idents = "NK")
+NK = Clustering1(NK)
+NK = RenameIdents(NK,
+                  '0' = "NK",
+                   '1' = "NK",
+                   '2' = "NK",
+                   '3' = "NK",
+                   '4' = "NK",
+                   '5' = "NK",
+                   '6' = "NK",
+                   '7' = "NK",
+                   '9' = "NK_Dividing",
+                   '10' = "NK",
+                  '8' = "LQ")
+NK$Identity.Celltype2 = Idents(NK)
+NK$Identity.Subtype1 = Idents(NK)
+NK$Identity.Subtype2 = Idents(NK)
+DimPlot(NK,label=T)
+#-----------------------------------------------------------------------------------------
+#CD8
+CD8 = subset(BOC, idents = "T_CD8")
+CD8 = Clustering1(CD8)
+Idents(CD8) = CD8$seurat_clusters
+CD8 = RenameIdents(CD8, 
+                   '0' = "T_CD8",
+                   '1' = "T_CD8",
+                   '2' = "T_CD8",
+                   '3' = "T_CD8",
+                   '4' = "T_CD8_Dividing",
+                   '5' = "T_CD8",
+                   '6' = "T_CD8",
+                   '7' = "T_CD8",
+                   '8' = "T_CD8",
+                   '9' = "T_CD8",
+                   '10' = "T_CD8" #KLRD1
+                   )
+CD8$Identity.Celltype2 = Idents(CD8)
+Idents(CD8) = CD8$seurat_clusters
+CD8 = RenameIdents(CD8, 
+                    '3' = "T_CD8_TCF7",
+                   '0' = "T_CD8_GZMK",
+                   '2' = "T_CD8_GZMK",
+                   '1' = "T_CD8_HAVCR2",
+                   '5' = "T_CD8_GNLY",
+                   '10' = "T_CD8_GNLY", #KLRD1
+                   '6' = "T_CD8_ISG",
+                   '8' = "T_CD8_RORA",
+                   '9' = "T_CD8_TNFRSF4",
+                   '7' = "T_CD8_FOXP3",
+                   '4' = "T_CD8_Dividing"
+                   )
+CD8$Identity.Subtype1 = Idents(CD8)
+Idents(CD8) = CD8$seurat_clusters
+CD8 = RenameIdents(CD8, 
+                    '3' = "T_CD8_TCF7",
+                   '0' = "T_CD8_GZMK_s1",
+                   '2' = "T_CD8_GZMK_s2",
+                   '1' = "T_CD8_HAVCR2",
+                   '5' = "T_CD8_GNLY_s1",
+                   '10' = "T_CD8_GNLY_s2", #KLRD1
+                   '6' = "T_CD8_ISG",
+                   '8' = "T_CD8_RORA",
+                   '9' = "T_CD8_TNFRSF4",
+                   '7' = "T_CD8_FOXP3",
+                   '4' = "T_CD8_Dividing"
+                   )
+CD8$Identity.Subtype2 = Idents(CD8)
+DimPlot(CD8, label= T)
+#-----------------------------------------------------------------------------------------
+#CD4
+CD4 = subset(BOC, idents = "T_CD4")
+CD4 = Clustering1(CD4)
+
+Idents(CD4) = CD4$seurat_clusters
+CD4 = RenameIdents(CD4,
+                   '0' = "T_CD4",
+                   '1' = "T_CD4",
+                   '2' = "T_CD4",
+                   '3' = "T_CD4",
+                   '4' = "T_CD4",
+                   '5' = "T_CD4",
+                   '8' = "T_CD4",
+                   '7' = "T_CD4", #ISG
+                   '6' = "T_CD4_Dividing",
+                   '9' = "LQ")
+CD4$Identity.Celltype2 = Idents(CD4)
+
+Idents(CD4) = CD4$seurat_clusters
+CD4 = RenameIdents(CD4,
+                   '0' = "T_CD4_KLF2",
+                   '1' = "T_CD4_TOX",
+                   '2' = "T_CD4_KLF2",
+                   '3' = "T_CD4_TOX",
+                   '4' = "T_CD4_KLF2",
+                   '5' = "T_CD4_TOX",
+                   '8' = "T_CD4_TOX",
+                   '7' = "T_CD4_ISG", #ISG
+                   '6' = "T_CD4_Dividing",
+                   '9' = "LQ")
+CD4$Identity.Subtype1 = Idents(CD4)
+
+Idents(CD4) = CD4$seurat_clusters
+CD4 = RenameIdents(CD4,
+                   '0' = "T_CD4_KLF2_s1",
+                   '2' = "T_CD4_KLF2_s2",
+                   '4' = "T_CD4_KLF2_s3",
+                   '1' = "T_CD4_TOX_s1",
+                   '3' = "T_CD4_TOX_s2",
+                   '5' = "T_CD4_TOX_s3",
+                   '8' = "T_CD4_TOX_s4",
+                   '7' = "T_CD4_ISG", #ISG
+                   '6' = "T_CD4_Dividing",
+                   '9' = "LQ")
+CD4$Identity.Subtype2 = Idents(CD4)
+#-----------------------------------------------------------------------------------------
+#Treg
+Treg = subset(BOC,idents = "T_CD4_FOXP3")
+Treg = Clustering1(Treg)
+Idents(Treg)= Treg$seurat_clusters
+Treg = RenameIdents(Treg, 
+                   '0' = "T_CD4_FOXP3",
+                   '1' = "T_CD4_FOXP3",
+                   '2' = "T_CD4_FOXP3",
+                   '3' = "T_CD4_FOXP3",
+                   '4' = "T_CD4_FOXP3",
+                   '5' = "T_CD4_FOXP3",
+                   '7' = "T_CD4_FOXP3",
+                   '6' = "T_CD4_FOXP3_Dividing")
+Treg$Identity.Celltype2 = Idents(Treg)
+Idents(Treg)= Treg$seurat_clusters
+Treg = RenameIdents(Treg, 
+                   '0' = "T_CD4_FOXP3_KLF2",
+                   '1' = "T_CD4_FOXP3_TNFRSF9",
+                   '2' = "T_CD4_FOXP3_TNFRSF9",
+                   '3' = "T_CD4_FOXP3_TNFRSF9",
+                   '4' = "T_CD4_FOXP3_TNFRSF9",
+                   '5' = "T_CD4_FOXP3_TNFRSF9",
+                   '7' = "T_CD4_FOXP3_TNFRSF9",
+                   '6' = "T_CD4_FOXP3_Dividing")
+Treg$Identity.Subtype1 = Idents(Treg)
+Idents(Treg)= Treg$seurat_clusters
+Treg = RenameIdents(Treg, 
+                   '0' = "T_CD4_FOXP3_KLF2",
+                   '1' = "T_CD4_FOXP3_TNFRSF9_s1",
+                   '2' = "T_CD4_FOXP3_TNFRSF9_s2",
+                   '3' = "T_CD4_FOXP3_TNFRSF9_s3",
+                   '4' = "T_CD4_FOXP3_TNFRSF9_s4",
+                   '5' = "T_CD4_FOXP3_TNFRSF9_s5",
+                   '7' = "T_CD4_FOXP3_TNFRSF9_s6",
+                   '6' = "T_CD4_FOXP3_Dividing")
+Treg$Identity.Subtype2 = Idents(Treg)
+DimPlot(Treg,label=T)
+#-----------------------------------------------------------------------------------------
+#TIM
+TIM = subset(BOC, idents = c("TIM_VCAN","TIM_C1QA","TIM_Dividing","TAN-PMN"))
+TIM = Clustering1(TIM,res = 1)
+DimPlot(TIM,label=T)
+Idents(TIM) = TIM$seurat_clusters
+TIM = RenameIdents(TIM,
+                   '0' = "TAN-PMN",
+                   '6' = "TAN-PMN",
+                   '15' = "TAN-PMN",
+                   '10' = "TAN-PMN",
+                   '1' = "TIM",
+                   '7' = "TIM",
+                   '9' = "TIM",
+                   '18' = "TIM",
+                   '13' = "TIM",
+                   '14' = "TIM",
+                   '8' = "TIM_Dividing",
+                   '17' = "TIM_Dividing",
+                   '2' = "TIM",
+                   '3' = "TIM",
+                   '4' = "TIM",
+                   '11' = "TIM",
+                   '12' = "TIM",
+                   '16' = "TIM",
+                   '5' = "LQ"
+                   )
+TIM$Identity.Celltype2 = Idents(TIM)
+DimPlot(TIM)
+Idents(TIM) = TIM$seurat_clusters
+TIM = RenameIdents(TIM,
+                   '0' = "TAN-PMN",
+                   '6' = "TAN-PMN",
+                   '15' = "TAN-PMN",
+                   '10' = "TAN-PMN",
+                   '1' = "TIM_C1QA",
+                   '7' = "TIM_C1QA",
+                   '9' = "TIM_C1QA",
+                   '18' = "TIM_C1QA",
+                   '13' = "TIM_C1QA",
+                   '14' = "TIM_C1QA",
+                   '8' = "TIM_C1QA_Dividing",
+                   '17' = "TIM_C1QA_Dividing",
+                   '2' = "TIM_VCAN",
+                   '3' = "TIM_VCAN",
+                   '4' = "TIM_VCAN",
+                   '11' = "TIM_VCAN",
+                   '12' = "TIM_VCAN",
+                   '16' = "TIM_VCAN",
+                   '5' = "LQ"
+                   )
+TIM$Identity.Subtype1 = Idents(TIM)
+Idents(TIM) = TIM$seurat_clusters
+TIM = RenameIdents(TIM,
+                   '0' = "TAN-PMN_s1",
+                   '6' = "TAN-PMN_s2",
+                   '15' = "TAN-PMN_s3",
+                   '10' = "TAN-PMN_s4",
+                   '1' = "TIM_C1QA_s1",
+                   '7' = "TIM_C1QA_s2",
+                   '9' = "TIM_C1QA_s3",
+                   '18' = "TIM_C1QA_s4",
+                   '13' = "TIM_C1QA_s5",
+                   '14' = "TIM_C1QA_s6",
+                   '8' = "TIM_C1QA_Dividing_s1",
+                   '17' = "TIM_C1QA_Dividing_s2",
+                   '2' = "TIM_VCAN_s1",
+                   '3' = "TIM_VCAN_s2",
+                   '4' = "TIM_VCAN_s3",
+                   '11' = "TIM_VCAN_s4",
+                   '12' = "TIM_VCAN_s5",
+                   '16' = "TIM_VCAN_s6",
+                   '5' = "LQ"
+                   )
+TIM$Identity.Subtype2 = Idents(TIM)
+
+#-----------------------------------------------------------------------------------------
+#B Cell
+B = subset(BOC, idents = "B_cell")
+B = Clustering1(B)
+Idents(B) = B$seurat_clusters
+B = RenameIdents(B,
+                 '2' = "B_cell",
+                 '4' = "B_cell",
+                 '0' = "Plasma_cell",
+                 '1' = "Plasma_cell",
+                 '3' = "Plasma_cell",
+                 '5' = "Plasma_cell",
+                 '7' = "Plasma_cell",
+                 '6' = "B-Plasma_cell_Dividing")
+B$Identity.Celltype2 = Idents(B)
+B$Identity.Subtype1 = Idents(B)
+Idents(B) = B$seurat_clusters
+B = RenameIdents(B,
+                 '2' = "B_cell_s1",
+                 '4' = "B_cell_s2",
+                 '0' = "Plasma_cell_s1",
+                 '1' = "Plasma_cell_s2",
+                 '3' = "Plasma_cell_s3",
+                 '5' = "Plasma_cell_s4",
+                 '7' = "Plasma_cell_s5",
+                 '6' = "B-Plasma_cell_Dividing")
+B$Identity.Subtype2 = Idents(B)
+
+#Embed
+Idents(BOC)=BOC$Identity.Celltype
+DimPlot(BOC)
+tmp1 = BOC[[]] %>% dplyr::select(Identity.Celltype) %>% filter(Identity.Celltype %in% c("cDC1","cDC2","mregDC","pDC","Minor","LQ"))
+tmp1$Identity.Celltype2 = tmp1$Identity.Celltype
+tmp1$Identity.Subtype1 = tmp1$Identity.Celltype
+tmp1$Identity.Subtype2 = tmp1$Identity.Celltype
+tmp2 = NK[[]]  %>% dplyr::select(Identity.Celltype,Identity.Celltype2,Identity.Subtype1,Identity.Subtype2)
+tmp3 = CD8[[]] %>% dplyr::select(Identity.Celltype,Identity.Celltype2,Identity.Subtype1,Identity.Subtype2)
+tmp4 = CD4[[]] %>% dplyr::select(Identity.Celltype,Identity.Celltype2,Identity.Subtype1,Identity.Subtype2)
+tmp5 = Treg[[]] %>% dplyr::select(Identity.Celltype,Identity.Celltype2,Identity.Subtype1,Identity.Subtype2)
+tmp6 = TIM[[]] %>% dplyr::select(Identity.Celltype,Identity.Celltype2,Identity.Subtype1,Identity.Subtype2)
+tmp7 = B[[]] %>% dplyr::select(Identity.Celltype,Identity.Celltype2,Identity.Subtype1,Identity.Subtype2)
+tmp = rbind(tmp1,tmp2,tmp3,tmp4,tmp5,tmp6,tmp7)
+
+tmp1 = tmp$Identity.Celltype2
+names(tmp1) = rownames(tmp)
+BOC = AddMetaData(BOC,tmp1,"Identity.Celltype2")
+
+tmp1 = tmp$Identity.Subtype1
+names(tmp1) = rownames(tmp)
+BOC = AddMetaData(BOC,tmp1,"Identity.Subtype1")
+
+tmp1 = tmp$Identity.Subtype2
+names(tmp1) = rownames(tmp)
+BOC = AddMetaData(BOC,tmp1,"Identity.Subtype2")
+
+write.csv(sort(unique(BOC$Identity.Celltype2)),"BOC.CD45.Identity.Celltype2.230712.csv")
+write.csv(sort(unique(BOC$Identity.Subtype1)),"BOC.CD45.Identity.Subtype1.230712.csv")
+write.csv(sort(unique(BOC$Identity.Subtype2)),"BOC.CD45.Identity.Subtype2.230712.csv")
+
+tmp = read.csv("BOC.CD45.Identity.Celltype2.230712.modified.csv")$x
+BOC$Identity.Celltype2 = factor(BOC$Identity.Celltype2, levels = tmp)
+
+tmp = read.csv("BOC.CD45.Identity.Subtype1.230712.modified.csv")$x
+BOC$Identity.Subtype1 = factor(BOC$Identity.Subtype1, levels = tmp)
+
+tmp = read.csv("BOC.CD45.Identity.Subtype2.230712.modified.csv")$x
+BOC$Identity.Subtype2 = factor(BOC$Identity.Subtype2, levels = tmp)
+```
+
+##Celltype3
+```{r}
+Idents(BOC) = BOC$Identity.Celltype2
+BOC <- RenameIdents(BOC,
+                    'NK' = "NK",
+                    'NK_Dividing' = "NK",
+                    'T_CD8' = "CD8 T cell",
+                    'T_CD8_Dividing' = "CD8 T cell",
+                    'T_CD4' = "CD4 T cell",
+                    'T_CD4_Dividing' = "CD4 T cell",
+                    'T_CD4_FOXP3' = "regulatory T cell",
+                    'T_CD4_FOXP3_Dividing' = "regulatory T cell",
+                    'TAN-PMN' = "TAN-PMN",
+                    'TIM' = "TIM",
+                    'TIM_Dividing' = "TIM",
+                    'cDC1' = "DC",
+                    'cDC2' = "DC",
+                    'mregDC' = "DC",
+                    'pDC' = "DC",
+                    'B_cell' = "B cell",
+                    'B-Plasma_cell_Dividing' = "B cell",
+                    'Plasma_cell' = "Plasma cell")
+BOC$Identity.Celltype3 = Idents(BOC)
+```
+
+##Celltype
+```{r}
+Idents(BOC) = BOC$Identity.Celltype2
+BOC <- RenameIdents(BOC,
+                    'NK' = "NK",
+                    'NK_Dividing' = "NK",
+                    'T_CD8' = "T_CD8",
+                    'T_CD8_Dividing' = "T_CD8",
+                    'T_CD4' = "T_CD4",
+                    'T_CD4_Dividing' = "T_CD4",
+                    'T_CD4_FOXP3' = "T_CD4_FOXP3",
+                    'T_CD4_FOXP3_Dividing' = "T_CD4_FOXP3",
+                    'TAN-PMN' = "TIM",
+                    'TIM' = "TIM",
+                    'TIM_Dividing' = "TIM",
+                    'cDC1' = "DC",
+                    'cDC2' = "DC",
+                    'mregDC' = "DC",
+                    'pDC' = "DC",
+                    'B_cell' = "B cell",
+                    'B-Plasma_cell_Dividing' = "B cell",
+                    'Plasma_cell' = "Plasma cell")
+BOC$Identity.Celltype = Idents(BOC)
+
+Idents(BOC) = BOC$Identity.Celltype2
+BOC <- RenameIdents(BOC,
+                    'NK' = "NK",
+                    'NK_Dividing' = "NK",
+                    'T_CD8' = "CD8 T cell",
+                    'T_CD8_Dividing' = "CD8 T cell",
+                    'T_CD4' = "CD4 T cell",
+                    'T_CD4_Dividing' = "CD4 T cell",
+                    'T_CD4_FOXP3' = "regulatory T cell",
+                    'T_CD4_FOXP3_Dividing' = "regulatory T cell",
+                    'TAN-PMN' = "TIM",
+                    'TIM' = "TIM",
+                    'TIM_Dividing' = "TIM",
+                    'cDC1' = "DC",
+                    'cDC2' = "DC",
+                    'mregDC' = "DC",
+                    'pDC' = "DC",
+                    'B_cell' = "B cell",
+                    'B-Plasma_cell_Dividing' = "B cell",
+                    'Plasma_cell' = "Plasma cell")
+BOC$Identity.CelltypeR = Idents(BOC)
+```
+
+##Celltype4
+```{r}
+Idents(BOC) = BOC$Identity.Celltype2
+BOC <- RenameIdents(BOC,
+                    'NK' = "NK",
+                    'T_CD8' = "T_CD8",
+                    'T_CD4' = "T_CD4",
+                    'T_CD4_FOXP3' = "T_CD4_FOXP3",
+                    'TAN-PMN' = "TIM",
+                    'TIM' = "TIM",
+                    'cDC1' = "DC",
+                    'cDC2' = "DC",
+                    'mregDC' = "DC",
+                    'pDC' = "DC",
+                    'B_cell' = "B cell",
+                    'Plasma_cell' = "Plasma cell",
+                    'NK_Dividing' = "Dividing",
+                    'T_CD8_Dividing' = "Dividing",
+                    'T_CD4_Dividing' = "Dividing",
+                    'T_CD4_FOXP3_Dividing' = "Dividing",
+                    'TIM_Dividing' = "Dividing",
+                    'B-Plasma_cell_Dividing' = "Dividing")
+BOC$Identity.Celltype4 = Idents(BOC)
+
+Idents(BOC) = BOC$Identity.Celltype2
+BOC <- RenameIdents(BOC,
+                    'NK' = "NK",
+                    'T_CD8' = "CD8 T cell",
+                    'T_CD4' = "CD4 T cell",
+                    'T_CD4_FOXP3' = "regulatory T cell",
+                    'TAN-PMN' = "TIM",
+                    'TIM' = "TIM",
+                    'cDC1' = "DC",
+                    'cDC2' = "DC",
+                    'mregDC' = "DC",
+                    'pDC' = "DC",
+                    'B_cell' = "B cell",
+                    'Plasma_cell' = "Plasma cell",
+                    'NK_Dividing' = "Dividing",
+                    'T_CD8_Dividing' = "Dividing",
+                    'T_CD4_Dividing' = "Dividing",
+                    'T_CD4_FOXP3_Dividing' = "Dividing",
+                    'TIM_Dividing' = "Dividing",
+                    'B-Plasma_cell_Dividing' = "Dividing"
+                    )
+BOC$Identity.Celltype4R = Idents(BOC)
+```
+
+#Exclude Minor-LQ
+```{r}
+tmp = levels(Idents(BOC)) %>% setdiff(c("Minor","LQ"))
+BOC = subset(BOC, idents = tmp)
+BOC = RunUMAP(BOC, reduction = "harmony", dims = 1:30, min.dist = 1, spread = 1 )
+```
+
+#-------------------------
+#PTGER2 Grouping
+```{r}
+tmp = PTGER2.Group(BOC,Identity = "Identity.Celltype",Batch = "Batch.scRNA" )
+BOC = AddMetaData(BOC,tmp,"PTGER2.Group.Celltype")
+BOC$PTGER2.Group.Celltype = factor(BOC$PTGER2.Group.Celltype, levels = c("Undetected","Low","High"))
+
+tmp = PTGER2.Group(BOC,Identity = "Identity.Celltype4",Batch = "Batch.scRNA" )
+BOC = AddMetaData(BOC,tmp,"PTGER2.Group.Celltype4")
+BOC$PTGER2.Group.Celltype4 = factor(BOC$PTGER2.Group.Celltype4, levels = c("Undetected","Low","High"))
+```
+
+#PTGER4 Grouping
+```{r}
+tmp = PTGER4.Group(BOC,Identity = "Identity.Celltype",Batch = "Batch.scRNA" )
+BOC = AddMetaData(BOC,tmp,"PTGER4.Group.Celltype")
+BOC$PTGER4.Group.Celltype = factor(BOC$PTGER4.Group.Celltype, levels = c("Undetected","Low","Intermediate","High"))
+
+tmp = PTGER4.Group(BOC,Identity = "Identity.Celltype2",Batch = "Batch.scRNA" )
+BOC = AddMetaData(BOC,tmp,"PTGER4.Group.Celltype2")
+BOC$PTGER4.Group.Celltype2 = factor(BOC$PTGER4.Group.Celltype2, levels = c("Undetected","Low","Intermediate","High"))
+
+
+tmp = PTGER4.Group(BOC,Identity = "Identity.Celltype4",Batch = "Batch.scRNA" )
+BOC = AddMetaData(BOC,tmp,"PTGER4.Group.Celltype4")
+BOC$PTGER4.Group.Celltype4 = factor(BOC$PTGER4.Group.Celltype4, levels = c("Undetected","Low","Intermediate","High"))
+
+tmp = PTGER4.Group(BOC,Identity = "Identity.Subtype1",Batch = "Batch.scRNA" )
+BOC = AddMetaData(BOC,tmp,"PTGER4.Group.Subtype1")
+BOC$PTGER4.Group.Subtype1 = factor(BOC$PTGER4.Group.Subtype1, levels = c("Undetected","Low","Intermediate","High"))
+```
+
+```{r}
+saveRDS("BOC.rds")
+```
+
+
+#DE (Bulk)
+##PTGER4
+###Celltype
+```{r}
+DE3 = list()
+Idents(BOC) = BOC$Identity.Celltype
+for(i in levels(BOC$Identity.Celltype)){
+      tryCatch({
+            print(i)
+            DE = list()
+            tmp = subset(BOC,idents = i )
+            Idents(tmp) = tmp$PTGER4.Group.Celltype
+            DE[["High-Low"]] = FindMarkers(tmp, ident.1 = "High", ident.2 = "Low", logfc.threshold = 0.01, min.pct = 0.01)
+	          DE[["High-Intermediate"]] = FindMarkers(tmp, ident.1 = "High", ident.2 = "Intermediate", logfc.threshold = 0.01, min.pct = 0.01)
+            DE[["High-Undetected"]] = FindMarkers(tmp, ident.1 = "High", ident.2 = "Undetected", logfc.threshold = 0.01, min.pct = 0.01)
+            DE[["Intermediate-Low"]] = FindMarkers(tmp, ident.1 = "Intermediate", ident.2 = "Low", logfc.threshold = 0.01, min.pct = 0.01)
+            DE[["Intermediate-Undetected"]] = FindMarkers(tmp, ident.1 = "Intermediate", ident.2 = "Undetected", logfc.threshold = 0.01, min.pct = 0.01)
+            DE[["Low-Undetected"]] = FindMarkers(tmp, ident.1 = "Low", ident.2 = "Undetected", logfc.threshold = 0.01, min.pct = 0.01)
+            DE3[[i]] = DE
+      },error = function(e){print(e)})
+}
+df = data.frame()
+for(i in names(DE3)){
+  print(i)
+  for(j in names(DE3[[i]])){
+    print(j)
+    df1 = DE3[[i]][[j]] %>% as_tibble(rownames = "Genes")
+    df1$Cluster = i
+    df1$Condition = j
+    df = rbind(df,df1)
+  }
+}
+DE3$df = df
+
+saveRDS(DE3,"BOC.DE_Bulk.PTGER4_Celltype.rds")
+```
+
+###Subtype1
+```{r}
+DE3 = list()
+Idents(BOC) = BOC$Identity.Subtype1
+for(i in levels(BOC$Identity.Subtype1)){
+      tryCatch({
+            print(i)
+            DE = list()
+            tmp = subset(BOC,idents = i )
+            Idents(tmp) = tmp$PTGER4.Group.Subtype1
+            DE[["High-Low"]] = FindMarkers(tmp, ident.1 = "High", ident.2 = "Low", logfc.threshold = 0.01, min.pct = 0.01)
+            DE[["High-Intermediate"]] = FindMarkers(tmp, ident.1 = "High", ident.2 = "Intermediate", logfc.threshold = 0.01, min.pct = 0.01)
+            DE[["High-Undetected"]] = FindMarkers(tmp, ident.1 = "High", ident.2 = "Undetected", logfc.threshold = 0.01, min.pct = 0.01)
+            tmp = RenameIdents(tmp, 'High' = "Positive",'Intermediate' = "Positive", 'Low' = "Positive",'Undetected' = "Negative")
+            DE[["Positive-Negative"]] = FindMarkers(tmp, ident.1 = "Positive",ident.2 = "Negative", logfc.threshold = 0.01, min.pct = 0.01)
+            DE3[[i]] = DE
+      },error = function(e){print(e)})
+}
+saveRDS(DE3,"BOC.DE_Bulk.PTGER4_Subtype1.rds")
+```
+
+##PTGER2
+###Celltype
+```{r}
+DE = list()
+Idents(BOC) = BOC$Identity.Celltype
+for(i in levels(BOC$Identity.Celltype)){
+      tryCatch({
+            print(i)
+            tmp = subset(BOC,idents = i )
+            Idents(tmp) = tmp$PTGER2.Group.Celltype
+            DE[[i]] = FindMarkers(tmp, ident.1 = "High", ident.2 = "Low", logfc.threshold = 0.01, min.pct = 0.01)
+      },error = function(e){print(e)})
+}
+
+df = data.frame()
+for(i in names(DE)){
+  print(i)
+  df1 = DE[[i]] %>% as_tibble(rownames = "Genes")
+  df1$Cluster = i
+  df1$Condition = "High-Low"
+  df = rbind(df,df1)
+  
+}
+DE$df = df
+saveRDS(DE,"BOC.DE_Bulk.PTGER2_Celltype.rds")
+```
+
+#DE (Per specimen)
+##DE PTGER4.Group 
+```{r}
+DE = list()
+Idents(BOC) = BOC$Identity.Celltype
+for(i in levels(Idents(BOC)) ){
+      print(i)
+      tmp = subset(BOC, idents = i)
+      DE[[i]] = FullDE(tmp, Group = "PTGER4.Group.Celltype", Batch = "Batch.scRNA")
+}
+
+df = data.frame()
+for(i in names(DE)){
+  tmp = names(DE[[i]]) %>% setdiff(c("FoldChange.Table","FoldChange.Sum"))
+  for(j in tmp ){
+      df1 = DE[[i]][[j]] %>% as_tibble(rownames = "Genes")
+      df1$Cluster = i
+      df1$Condition = j
+      df = rbind(df,df1)
+      }
+}
+DE$df = df
+saveRDS(DE,"BOC.DE_Specimen.Celltype.rds")
+
+DE = list()
+Idents(BOC) = BOC$Identity.Subtype1
+for(i in levels(Idents(BOC)) ){
+      print(i)
+      tmp = subset(BOC, idents = i)
+      DE[[i]] = FullDE(tmp, Group = "PTGER4.Group.Subtype1", Batch = "Batch.scRNA")
+}
+df = data.frame()
+for(i in names(DE)){
+  tmp = names(DE[[i]]) %>% setdiff(c("FoldChange.Table","FoldChange.Sum"))
+  for(j in tmp ){
+      df1 = DE[[i]][[j]] %>% as_tibble(rownames = "Genes")
+      df1$Cluster = i
+      df1$Condition = j
+      df = rbind(df,df1)
+      }
+}
+DE$df = df
+saveRDS(DE,"BOC.DE_Specimen.Subtype1.rds")
+```
+
+##DE PTGER2.Group 
+###Celltype
+```{r}
+DE = list()
+Idents(BOC) = BOC$Identity.Celltype
+for(i in levels(Idents(BOC)) ){
+      print(i)
+      tmp = subset(BOC, idents = i)
+      DE[[i]] = FullDE(tmp, Group = "PTGER2.Group.Celltype", Batch = "Batch.scRNA",A = "High", B = "Low")
+}
+df = data.frame()
+for(i in names(DE)){
+  tmp = names(DE[[i]]) %>% setdiff(c("FoldChange.Table","FoldChange.Sum"))
+  for(j in tmp ){
+      df1 = DE[[i]][[j]] %>% as_tibble(rownames = "Genes")
+      df1$Cluster = i
+      df1$Dataset = j
+      df = rbind(df,df1)
+      }
+}
+df$Cluster = factor(df$Cluster, levels= names(DE) )
+DE$df = df
+saveRDS(DE,"BOC.DE_Specimen.PTGER2.Celltype.rds")
+```
+
+#GSEA
+```{r}
+DE <- readRDS("BOC.DE_Bulk.PTGER4_Celltype")
+GSEA = list()
+GSEA_H = list()
+for(i in names(DE)[1:8] ){
+  tmp = DE[[i]][["High-Low"]] %>% as_tibble(rownames = "Genes" ) %>% dplyr::select(Genes, avg_log2FC) %>% arrange(avg_log2FC)
+  GSEA[[i]] <- fgseaMultilevel(fgsea_sets, stats = deframe(tmp) ) %>% arrange(desc(NES) )
+  GSEA_H[[i]] <- fgseaMultilevel(fgsea_sets_H, stats = deframe(tmp) ) %>% arrange(desc(NES) )
+}
+DE$GSEA2 = GSEA
+DE$GSEA_H2 = GSEA_H
+
+#saveRDS(DE,"BOC.DE_Bulk.PTGER4_Celltype.GSEA.rds")
+```
