@@ -1,0 +1,404 @@
+---
+title: "Command"
+author: "Siwakorn P"
+date: "2024-09-21"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Command
+```{r}
+Clustering1 <- function(tmp,dim=30,res=0.3,spread =1, dist = 1,group = "ID" ){
+      DefaultAssay(tmp) = "RNA"
+      tmp <- NormalizeData(tmp) %>% FindVariableFeatures() %>% ScaleData() %>% RunPCA(verbose = FALSE)
+      tmp <- RunHarmony(tmp, group.by.vars = group)
+      tmp <- RunUMAP(tmp, reduction = "harmony", dims = 1:dim, min.dist = dist, spread = spread )
+      tmp <- FindNeighbors(tmp, reduction = "harmony", dims = 1:dim) %>% FindClusters(resolution = res)
+      return(tmp)
+}
+
+PTGER4.Group = function(Obj1, Identity = "Identity.Celltype", Batch = "Batch.scRNA"){
+      df = data.frame()
+      Cluster = unique(Obj1[[]][,Identity]) %>% as.character()
+      Idents(Obj1) = Identity
+      for(i in Cluster){
+            Obj2 = subset(Obj1, idents = i)
+            AllBatch = unique(as.character(Obj2[[]][,Batch] ))
+            for(j in AllBatch ){
+                  Idents(Obj2) = Batch
+                  Obj3 = subset(Obj2, idents = j)
+                  tmp = FetchData(Obj3, vars = "PTGER4",slot="data") %>% arrange(desc(PTGER4))
+                  tmpA = filter(tmp,PTGER4 == 0)
+                  tmp = filter(tmp,PTGER4 != 0)
+                  if(nrow(tmpA) > 0 ) {
+                        tmpA$PTGER4.Group = "Undetected"
+                        } 
+                  if(nrow(tmp) > 0 ) {
+                        tmp$PTGER4.Group = "Low"
+                        tmp$PTGER4.Group[1:round(nrow(tmp)/3)] = "High" 
+                        tmp$PTGER4.Group[(round(nrow(tmp)/3)+1):(round(nrow(tmp)/3*2))] = "Intermediate"
+                        }
+                  tmp = rbind(tmp,tmpA)
+                  if(nrow(tmp) > 0 ) {
+                        tmp$Cluster = i
+                        tmp$Batch = j
+                        }
+                  print(paste0(i," ",j, " ... ", (nrow(tmp) == ncol(Obj3)  ) ) )
+                  df = rbind(df,as_tibble(tmp,rownames="CB"))
+            }
+      }
+      print(paste0("Validation : ", nrow(df) == nrow(Obj1[[]]) ) )
+      tmp2 = df$PTGER4.Group
+      names(tmp2) = df$CB
+      return(tmp2)
+}
+
+PTGER2.Group = function(Obj1, Identity = "Identity.Celltype", Batch = "Batch.scRNA"){
+      df = data.frame()
+      Cluster = unique(Obj1[[]][,Identity]) %>% as.character()
+      Idents(Obj1) = Identity
+      for(i in Cluster){
+            Obj2 = subset(Obj1, idents = i)
+            AllBatch = unique(as.character(Obj2[[]][,Batch] ))
+            for(j in AllBatch ){
+                  Idents(Obj2) = Batch
+                  Obj3 = subset(Obj2, idents = j)
+                  tmp = FetchData(Obj3, vars = "PTGER2",slot="data") %>% arrange(desc(PTGER2))
+                  tmpA = filter(tmp,PTGER2 == 0)
+                  tmp = filter(tmp,PTGER2 != 0)
+                  if(nrow(tmpA) > 0 ) {
+                        tmpA$PTGER2.Group = "Undetected"
+                        } 
+                  if(nrow(tmp) > 0 ) {
+                        tmp$PTGER2.Group = "Low"
+                        tmp$PTGER2.Group[1:round(nrow(tmp)/2)] = "High" 
+                        }
+                  tmp = rbind(tmp,tmpA)
+                  if(nrow(tmp) > 0 ) {
+                        tmp$Cluster = i
+                        tmp$Batch = j
+                        }
+                  print(paste0(i," ",j, " ... ", (nrow(tmp) == ncol(Obj3)  ) ) )
+                  df = rbind(df,as_tibble(tmp,rownames="CB"))
+            }
+      }
+      print(paste0("Validation : ", nrow(df) == nrow(Obj1[[]]) ) )
+      tmp2 = df$PTGER2.Group
+      names(tmp2) = df$CB
+      return(tmp2)
+}
+
+
+
+
+FullDE <- function(Obj,Group = "PTGER4.Group.Celltype2", Batch = "ID",A = "High", B = "Low"){
+      DE = list()
+      Idents(Obj) = Batch
+      for(i in unique(Obj[[]][,Batch]) ){
+            tmp = subset(Obj, idents = i)
+            print(paste0(i," : ", ncol(tmp), " Cells"))
+            tryCatch({
+                  Idents(tmp) = Group
+                  print(summary(Idents(tmp)))
+                  DE[[i]] = FindMarkers(tmp,ident.1 = A, ident.2 = B, logfc.threshold = 0,min.pct =0.01 )
+            }, error = function(e){print(e)})
+      }
+      #Sum table
+      df = data.frame()
+      for(i in names(DE) ){
+            tmp = DE[[i]] %>% as_tibble(rownames = "Genes") %>% dplyr::select(Genes, avg_log2FC)
+            tmp$Datasets = i
+            df = rbind(df,tmp)
+      }
+      df = spread(df, Genes, avg_log2FC) %>% as.data.frame()
+      rownames(df) = df$Datasets
+      df = dplyr::select(df,-Datasets)
+      df2 = matrix(nrow = ncol(df),ncol=0) %>% data.frame()
+      rownames(df2) = colnames(df)
+      df2$Upregulation = "NA"
+      df2$Downregulation = "NA"
+      for(i in colnames(df)){
+            tmp = df[,i] > 0 
+            df2[i,"Upregulation"] = sum(tmp)
+            tmp = df[,i] < 0 
+            df2[i,"Downregulation"] = sum(tmp)
+      }
+      df2$Upregulation = as.numeric(df2$Upregulation)
+      df2$Downregulation = as.numeric(df2$Downregulation)
+      DE[["FoldChange.Table"]] = df
+      DE[["FoldChange.Sum"]] = df2
+      return(DE)
+}
+
+FullDE2 <- function(Obj,Group = "PTGER4.Group.Celltype2", Batch = "Batch.scRNA",A = "High", B = "Low"){
+      DE = list()
+      Idents(Obj) = Batch
+      for(i in unique(Obj[[]][,Batch]) ){
+            tmp = subset(Obj, idents = i)
+            print(paste0(i," : ", ncol(tmp), " Cells"))
+            tryCatch({
+                  Idents(tmp) = Group
+                  print(summary(Idents(tmp)))
+                  DE[[i]] = FindMarkers(tmp,ident.1 = A, ident.2 = B, logfc.threshold = 0,min.pct =0.01 )
+            }, error = function(e){print(e)})
+      }
+      return(DE)
+}
+
+RevIden <- function(x){
+      factor(x, levels = rev(levels(x)))
+}
+
+find <- function(object,gene){
+      rownames(object)[grep(gene,rownames(object) )] %>% mixedsort()
+}
+
+find2 <- function(Genes,SearchGenes){
+      Genes[grep(SearchGenes,Genes )] 
+}
+
+
+GeneGroup <- function(df,GeneList ){
+  tmp = data.frame(matrix(ncol = (ncol(df)+1), nrow = 0))
+  colnames(tmp) = c(colnames(df),"Set")
+  for(i in names(GeneList)){
+      tmp1 = filter(df, Genes %in% GeneList[[i]] ) %>% filter(!Genes %in% tmp[,"Genes"])
+      tmp1$Set = i
+      tmp = rbind(tmp,tmp1)
+  }
+  tmp$Set = factor(tmp$Set, levels = names(GeneList))
+  tmp$Genes = factor(tmp$Genes, levels = unique(unlist(GeneList)) )
+  return(tmp)
+}
+
+pCat = function(df, pval.use = "p_val_adj"){
+  df$pval_cat = ">0.05"
+  df$pval_cat[(df[,pval.use] < 0.05)] = "<0.05"
+  df$pval_cat[(df[,pval.use] < 0.01)] = "<0.01"
+  df$pval_cat[(df[,pval.use] < 0.001)] = "<0.001"
+  df$pval_cat = factor(df$pval_cat, levels = c(">0.05","<0.05","<0.01","<0.001"))
+  return(df)
+}
+
+
+```
+
+#Color and visualization
+```{r}
+ColorList = list(
+  "Celltype4" = c("#f57f26", "#d51f24","#252d6b","#1e8b40","#fcb900","#985c6f","#49488d","#882790","#BF535B"),
+  "CD8Subtype" = c("#fcc304","#fb5b33","#c40424","#6a994e","#ef476f","#219ebc","#5e548e","#fe6d73","#00296b"),
+  "TIM.Subtype" = c("#4A080A","#a01313","#e09f3e","red"),
+  "LLC.Celltype2" = c("#f57f26","cyan4","#252d6b","#fcb900","#d51f24","#2D3D98","#1e8b40","#a83a2b","#7D387D","#7A5532","grey"),
+  
+  "Viridis" = c("grey","#440154FF", "#414487FF", "#2A788EFF", "#22A884FF" ,"#7AD151FF", "#fecd1a" ), #Source viridis::viridis(6)
+  "BlueRed" = c("#01295f","#1c51be","#52b893","#f5d62e","#f86624","firebrick"),
+  "HiLow.7Shades" = c("#28198a","#163285","#3d569f","#ffffff","#f9c80e","#f86624","#ea3546"),
+  "HiLow.9Shades" = c("#28198a","#163285","#3d569f","#8b99c2","#ffffff","#fce487","#f9c80e","#f86624","#ea3546"),
+  "HiLow.CB" = c("#2E4075","#3d569f","#ffffff","#f9c80e","#BA2A20"),
+  "Rainbow" = c("#01295f","#437f97","#849324","#ffb30f","#fd151b","firebrick")
+)
+
+scale_orange = scale_color_gradientn(colours = c("grey","yellow","orange","red"), values = c(0,0.1,0.5,1))
+scale_orange2 = scale_color_gradientn(colours = c("grey","yellow","orange","red"), values = c(0,0.1,0.5,1), breaks = c(0,0.5,1,2,3,4),limit = c(0,4))
+scale_viridis = scale_color_gradientn(colours = ColorList$Viridis )
+scale_PRainbow = scale_color_gradientn(colours = ColorList$Rainbow)
+
+
+Dot_axis90A = theme(axis.text.x =  element_text(size = 15, angle = 90, hjust = 1, vjust = 0.3,color = "black",face ="italic"), axis.text.y = element_text(size = 15,color = "black")) 
+Dot_axis90B = theme(axis.text.x =  element_text(size = 15, angle = 90, hjust = 1, vjust = 0.3,color = "black"), axis.text.y = element_text(size = 15,color = "black")) 
+
+```
+
+#Gene set reference 
+##Cross reference Human-Mouse
+###Jax
+```{r}
+mouse_human_genes = read.csv("http://www.informatics.jax.org/downloads/reports/HOM_MouseHumanSequence.rpt",sep="\t")
+#mouse_human_genes <- read.delim("HOM_MouseHumanSequence.rpt", header=T)
+
+#write.csv(mouse_human_genes, file ="mouse_human_genes.230112.csv")
+#saveRDS(mouse_human_genes, file ="mouse_human_genes.240423.rds")
+
+ref = list()
+output = data.frame(matrix(ncol=2,nrow=0))
+colnames(output) = c("Mouse_gene","Human_gene")
+tmp1 = filter(mouse_human_genes,Common.Organism.Name == "mouse, laboratory")
+tmp1 = unique(tmp1$Symbol) %>% sort()
+for(gene in tmp1){
+  class_key = (mouse_human_genes %>% filter(Symbol == gene & Common.Organism.Name=="mouse, laboratory"))[['DB.Class.Key']]
+    if(!identical(class_key, integer(0)) ){
+      human_genes = (mouse_human_genes %>% filter(DB.Class.Key == class_key & Common.Organism.Name=="human"))[,"Symbol"]
+      for(human_gene in human_genes){
+        output[gene,] = c(gene,human_gene)
+      }
+    }
+}
+ref$M2H = output
+
+
+output = data.frame(matrix(ncol=2,nrow=0))
+colnames(output) = c("Human_gene","Mouse_gene")
+tmp1 = filter(mouse_human_genes,Common.Organism.Name == "human")
+tmp1 = unique(tmp1$Symbol) %>% sort()
+for(gene in tmp1){
+  class_key = (mouse_human_genes %>% filter(Symbol == gene & Common.Organism.Name=="human"))[['DB.Class.Key']]
+    if(!identical(class_key, integer(0)) ){
+      
+      mouse_genes = (mouse_human_genes %>% filter(DB.Class.Key == class_key & Common.Organism.Name=="mouse, laboratory"))[,"Symbol"]
+      for(mouse_gene in mouse_genes){
+        output[gene,] = c(gene,mouse_gene)
+      }
+    }
+}
+ref$H2M = output
+```
+
+
+##biomart
+```{r}
+library(org.Hs.eg.db)
+library(org.Mm.eg.db)
+library(biomaRt)
+hmart = useMart("ensembl", dataset = "hsapiens_gene_ensembl")
+hmart <- getBM(filters = "hgnc_symbol", 
+               attributes = c("ensembl_gene_id", "description","hgnc_symbol","mgi_symbol"),
+               mart = hmart) 
+
+hmart <- getBM(attributes = c("ensembl_gene_id", "hgnc_symbol","description", "go_id"), mart = hmart)
+ref$hmart = hmart
+
+mmart = useMart("ensembl", dataset = "mmusculus_gene_ensembl")
+mmart <- getBM(attributes = c("ensembl_gene_id", "mgi_symbol", "description", "go_id" , "external_gene_name"), mart = mmart) 
+ref$mmart = mmart
+
+HGenes = Ref$hmart$hgnc_symbol %>% unique() %>% mixedsort()
+MGenes = Ref$mmart$mgi_symbol %>% unique() %>% mixedsort()
+
+#saveRDS(ref,"Ref_Jax_biomart.240423.rds")
+```
+
+
+##msigdbr
+```{r}
+fgsea_sets_H  <- msigdbr(species = "human", category = "H" ) %>% split(x = .$gene_symbol, f = .$gs_name)
+fgsea_sets_c2 <- msigdbr(species = "human", category = "C2" ) %>% split(x = .$gene_symbol, f = .$gs_name)
+fgsea_sets_c5 <- msigdbr(species = "human", category = "C5" ) %>% split(x = .$gene_symbol, f = .$gs_name)
+fgsea_sets = append(fgsea_sets_H, fgsea_sets_c2)
+
+mfgsea_sets_H  <- msigdbr(species = "mouse", category = "H" ) %>% split(x = .$gene_symbol, f = .$gs_name)
+mfgsea_sets_c2 <- msigdbr(species = "mouse", category = "C2" ) %>% split(x = .$gene_symbol, f = .$gs_name)
+mfgsea_sets_c5 <- msigdbr(species = "mouse", category = "C5" ) %>% split(x = .$gene_symbol, f = .$gs_name)
+mfgsea_sets = append(mfgsea_sets_H, mfgsea_sets_c2)
+```
+#Gene set used
+#Human gene set
+```{r}
+#Ref <- readRDS("Ref_Jax_biomart.240423.rds")
+GeneSet = list()
+GeneSet$PGE2 = c("PTGS1","PTGS2","PTGER1","PTGER2","PTGER3","PTGER4")
+
+GeneSet$DE = list()
+
+GeneSet$DE$ETC.selected = c("NDUFA6","NDUFA7","NDUFB5","SDHAF1","SDHAF2","COX5A","COX5B","COX6A1","ATP5FA1","ATP5F1C","ATP5MF" )
+GeneSet$DE$RP.selected = c("RPS2","RPS3","RPS11","RPL3","RPL11","RPL19")
+
+
+GeneSet$DE$CD8.Overview = list(
+  "Activation" = c("CD44","CD69","FOS","FOSB","JUN","JUNB","JUND","NFATC1","IFNG"),
+  "NFKB" = c("NFKB1","NFKBIZ","NR4A1","NR4A2","NR4A3","RELB"), 
+  "TCR" = c("CD3D","CD3G","CD27","CD28"),
+  "IL2-signaling" = c("IL2RA","IL2RB","IL2RG","STAT5A","STAT5B"),
+  "OXPHOS" = GeneSet$DE$ETC.selected ,
+  "Ribosome" = GeneSet$DE$RP.selected  )
+
+GeneSet$DE$TIM.Overview = list(
+  "AP-1" = c("FOS","FOSB","FOSL1","FOSL2","JUN","JUNB","JUND"),
+  "NFKB" = c("NFKB1","NKFB2","NFKBIZ","NR4A1","NR4A2","NR4A3","RELB","RELA"), 
+  "ETC" = GeneSet$DE$ETC.selected,
+  "Ribosome" = GeneSet$DE$RP.selected  )
+
+GeneSet$DE$ETC = list(
+  "Complex I" = find2(HGenes, "^NDUF"),
+  "Complex II" = find2(HGenes, "^SDH"),
+  "Complex III" = c(find2(HGenes, "^UQC"),find2(HGenes,"^CYC")),
+  "Complex IV" = find2(HGenes,"^COX"),
+  "Complex V" = find2(HGenes, "^ATP")
+)
+GeneSet$DE$ETC = list(
+  "Complex I" = mixedsort(intersect(GeneSet$DE$ETC$`Complex I`, fgsea_sets$WP_MITOCHONDRIAL_COMPLEX_I_ASSEMBLY_MODEL_OXPHOS_SYSTEM)),
+  "Complex II" = mixedsort(intersect(GeneSet$DE$ETC$`Complex II` ,fgsea_sets$WP_MITOCHONDRIAL_COMPLEX_II_ASSEMBLY)),
+  "Complex III" = mixedsort(intersect(GeneSet$DE$ETC$`Complex III`, fgsea_sets$WP_MITOCHONDRIAL_COMPLEX_III_ASSEMBLY)),
+  "Complex IV" = mixedsort(intersect(GeneSet$DE$ETC$`Complex IV`, fgsea_sets$WP_MITOCHONDRIAL_COMPLEX_IV_ASSEMBLY)),
+  "Complex V" = mixedsort(intersect(GeneSet$DE$ETC$`Complex V`  ,fgsea_sets_c5$GOCC_PROTON_TRANSPORTING_ATP_SYNTHASE_COMPLEX))
+)
+
+GeneSet$DE$Ribosome = list(
+  "RP large subunit" = mixedsort(intersect(fgsea_sets$KEGG_RIBOSOME, find2(HGenes, "^RPL"))),
+  "RP small subunit" = mixedsort(intersect(fgsea_sets$KEGG_RIBOSOME, find2(HGenes, "^RPS")))
+)
+
+GeneSet$DE$ETC.Ribosome = c(GeneSet$DE$ETC,GeneSet$DE$Ribosome)
+
+GeneSet$DE$ETC.RP = list("Complex I" = GeneSet$DE$ETC[["Complex I"]][c(1:6,18:23)],
+                          "Complex II" = GeneSet$DE$ETC[["Complex II"]],
+                          "Complex III" = GeneSet$DE$ETC[["Complex III"]],
+                          "Complex IV" = GeneSet$DE$ETC[["Complex IV"]][2:11],
+                          "Complex V" = GeneSet$DE$ETC[["Complex V"]][1:12],
+                          "RP large subunit" = GeneSet$DE$Ribosome$`RP large subunit`[1:12],
+                           "RP small subunit" = GeneSet$DE$Ribosome$`RP small subunit`[1:12] )
+
+GeneSet$DE$ETC.RP2  #Defined in Fig. 5e
+
+
+GeneSet$DE$Glycolysis = fgsea_sets$REACTOME_GLYCOLYSIS %>% setdiff(c("ALDOB","ALDOC","GAPDHS","GCK","GCKR","PFKFB1","PKLR"))
+GeneSet$DE$IFNG = c("IFNG","IFNGR1","IFNGR2")
+```
+##Mouse gene set
+```{r}
+geneSet = list()
+geneSet$DE$ETC = list(
+  "Complex I" = find2(MGenes, "^Nduf"),
+  "Complex II" = find2(MGenes, "^Sdh"),
+  "Complex III" = c(find2(MGenes, "^Uqc"),find2(MGenes,"^Cyc")),
+  "Complex IV" = find2(MGenes,"^Cox")
+)
+geneSet$DE$ETC = list(
+  "Complex I" = mixedsort(intersect(geneSet$DE$ETC$`Complex I`, mfgsea_sets$WP_MITOCHONDRIAL_COMPLEX_I_ASSEMBLY_MODEL_OXPHOS_SYSTEM)),
+  "Complex II" = mixedsort(intersect(geneSet$DE$ETC$`Complex II` ,mfgsea_sets$WP_MITOCHONDRIAL_COMPLEX_II_ASSEMBLY)),
+  "Complex III" = mixedsort(intersect(geneSet$DE$ETC$`Complex III`, mfgsea_sets$WP_MITOCHONDRIAL_COMPLEX_III_ASSEMBLY)),
+  "Complex IV" = mixedsort(intersect(geneSet$DE$ETC$`Complex IV`, mfgsea_sets$WP_MITOCHONDRIAL_COMPLEX_IV_ASSEMBLY)),
+  "Complex V" = find2(mixedsort(mfgsea_sets_c5$GOCC_PROTON_TRANSPORTING_ATP_SYNTHASE_COMPLEX),"^Atp5")
+)
+geneSet$DE$ETC.selected #Defined in Fig 4c section
+geneSet$DE$ETC.selected2 = list(
+  "Complex I" = c("Ndufa2","Ndufa4","Ndufa6","Ndufa9","Ndufa11","Ndufa13","Ndufb2","Ndufb3","Ndufb7","Ndufb9","Ndufb10","Ndufb11","Ndufc2","Ndufs3","Ndufs4","Ndufs6","Ndufs8"),
+  "Complex III" = c("Uqcc2","Uqcr10","Uqcrb","Uqcrh","Cycs"),
+  "Complex IV" = c("Cox4i1","Cox5a","Cox5b","Cox6b1","Cox6b2","Cox7a2","Cox7b","Cox8a","Cox14"),
+  "Complex V" = c("Atp5c1","Atp5d","Atp5e","Atp5g1","Atp5g2","Atp5h","Atp5j","Atp5j2")
+)
+
+
+geneSet$DE$Ribosome = list(
+  "RP large subunit" = mixedsort(intersect(mfgsea_sets$KEGG_RIBOSOME, find2(MGenes, "^Rpl"))),
+  "RP small subunit" = mixedsort(intersect(mfgsea_sets$KEGG_RIBOSOME, find2(MGenes, "^Rps")))
+  
+)
+geneSet$DE$Ribosome.selected #Defined in Fig 4c section
+geneSet$DE$Ribosome.selected2 #Defined in Sup Fig 11d
+
+geneSet$DE$ETC.Ribosome = c(geneSet$DE$ETC,geneSet$DE$Ribosome)
+geneSet$DE$ETC.RP = c(geneSet$DE$ETC.selected,geneSet$DE$Ribosome.selected)
+geneSet$DE$ETC.RP2 = c(geneSet$DE$ETC.selected2,geneSet$DE$Ribosome.selected) #For Fig. 6b
+geneSet$DE$ETC.RP3 = c(geneSet$DE$ETC, geneSet$DE$Ribosome.selected2) #For Sup Fig 11d
+
+geneSet$DE$IL2R = list("IL2" = "Il2",
+                       "IL2R" = c("Il2ra","Il2rb","Il2rg"))
+
+geneSet$DE$Glycolysis = c("Hk1","Hk2","Hk3","Eno1","Eno2","Aldoc","Pgm1","Pgm2","Pgm3","Pfkm","Pfkl","Pfkp","Pkm","Gale","Galm","Pygl","Slc2a1","Slc2a2","Slc2a3")
+
+geneSet$DE$IFNG = c("Ifng","Ifngr1","Ifngr2")
+```
